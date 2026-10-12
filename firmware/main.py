@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "2.2"
+FW_VERSION = "2.3"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -78,8 +78,11 @@ def boot_guard():
     cnt = _read_int(BOOTCNT_PATH, 0) + 1
     _write_int(BOOTCNT_PATH, cnt)
     if cnt > 3:
-        _restore_bak()
-        machine.reset()
+        # Restaurar la version previa y reiniciar; si no hay copia, no quedarse
+        # en un bucle de reinicios: limpiar el contador y continuar.
+        if _restore_bak():
+            machine.reset()
+        _write_int(BOOTCNT_PATH, 0)
 
 # ---------------- estado de red publicado por BLE ----------------
 netmsg = "wifi:off"
@@ -640,8 +643,11 @@ def loop():
 
 def main():
     global pending
-    net_startup()
+    # BLE PRIMERO: el aro queda visible y manejable aunque la red o el OTA
+    # tarden o fallen (asi no parece "muerto" durante el arranque).
     start_ble()
+    render()
+    net_startup()
     print("AroLED listo v" + FW_VERSION + " " + netmsg)
     loop()
 
