@@ -379,14 +379,36 @@
     function startStatPoll() { stopStatPoll(); statTimer = setInterval(readStat, 1500); readStat(); }
     function stopStatPoll() { if (statTimer) { clearInterval(statTimer); statTimer = null; } }
 
+    // El aro reinicia para aplicar WiFi/OTA: reconectar solo cuando vuelva.
+    async function waitReconnect() {
+      if (!deviceId) return;
+      var id = deviceId;
+      setStatus("El aro se está reiniciando… esperando a que vuelva.");
+      for (var i = 0; i < 14; i++) {
+        await new Promise(function (r) { setTimeout(r, 3000); });
+        try {
+          try { await BLE.disconnect({ deviceId: id }); } catch (e) {}
+          await BLE.connect({ deviceId: id, timeout: 15000 });
+          await BLE.discoverServices({ deviceId: id });
+          setStatus("Reconectado.");
+          startStatPoll();
+          readVer();
+          return;
+        } catch (e) { /* sigue esperando */ }
+      }
+      setStatus("No volvió a responder. Pulsa buscar para reconectar.");
+      stopStatPoll();
+    }
+
     $("btnWifi").onclick = function () {
       var s = $("ssid").value, p = $("pass").value;
       saveWifi(s, p);
       sendCmd("W\t" + s + "\t" + p);
       $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
+      waitReconnect();
     };
-    $("btnUpd").onclick = function () { sendCmd("U"); };
-    $("btnReboot").onclick = function () { sendCmd("R"); };
+    $("btnUpd").onclick = function () { sendCmd("U"); $("net").innerHTML = '<span class="dot"></span>estado: ota:enviando…'; waitReconnect(); };
+    $("btnReboot").onclick = function () { sendCmd("R"); waitReconnect(); };
 
     $("btnScan").onclick = startScan;
     $("btnDisc").onclick = disconnect;

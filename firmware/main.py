@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "2.5"
+FW_VERSION = "2.8"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -33,9 +33,16 @@ OTA_API      = "https://api.github.com/repos/JesPezz/AroLED/releases/latest"
 def load_cfg():
     try:
         with open(CFG_PATH) as f:
-            return json.load(f)
+            c = json.load(f)
     except Exception:
-        return {"ssid": "", "pass": ""}
+        c = {}
+    # Migracion del formato viejo {"ssid","pass"} a lista de redes.
+    if "nets" not in c:
+        nets = []
+        if c.get("ssid"):
+            nets.append({"ssid": c["ssid"], "pass": c.get("pass", "")})
+        c = {"nets": nets, "last": c.get("ssid", "")}
+    return c
 
 def save_cfg(c):
     try:
@@ -100,19 +107,21 @@ def set_net(m):
 # ---------------- wifi ----------------
 wlan = None
 
-def wifi_connect(ssid, pw, tries=30):
+def wifi_try(ssid, pw, tries=12):
     global wlan
     if not ssid:
         return False
     if wlan is None:
         wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    if not wlan.isconnected():
-        try:
-            wlan.disconnect()
-        except Exception:
-            pass
+    try:
+        wlan.disconnect()
+    except Exception:
+        pass
+    try:
         wlan.connect(ssid, pw)
+    except Exception:
+        return False
     for _ in range(tries):
         if wlan.isconnected():
             return True
@@ -126,6 +135,47 @@ def wifi_off():
             wlan.active(False)
         except Exception:
             pass
+
+def nets_list():
+    return load_cfg().get("nets", [])
+
+def net_ssids():
+    return [n.get("ssid", "") for n in nets_list() if n.get("ssid")]
+
+def net_pass(ssid):
+    for n in nets_list():
+        if n.get("ssid") == ssid:
+            return n.get("pass", "")
+    return ""
+
+def add_net(ssid, pw):
+    if not ssid:
+        return
+    c = load_cfg()
+    nets = [n for n in c.get("nets", []) if n.get("ssid") != ssid]
+    nets.append({"ssid": ssid, "pass": pw or ""})
+    c["nets"] = nets
+    save_cfg(c)
+
+def del_net(ssid):
+    c = load_cfg()
+    c["nets"] = [n for n in c.get("nets", []) if n.get("ssid") != ssid]
+    save_cfg(c)
+
+def wifi_connect_any(tries=10):
+    # Prueba primero la ultima red buena y despues el resto.
+    c = load_cfg()
+    nets = c.get("nets", [])
+    if not nets:
+        return None
+    last = c.get("last", "")
+    order = sorted(nets, key=lambda n: 0 if n.get("ssid") == last else 1)
+    for n in order:
+        if wifi_try(n.get("ssid", ""), n.get("pass", ""), tries):
+            c["last"] = n.get("ssid", "")
+            save_cfg(c)
+            return n.get("ssid", "")
+    return None
 
 # ---------------- HTTP/HTTPS ----------------
 def _split_url(url):
@@ -349,11 +399,11 @@ def ota_check():
     time.sleep_ms(700)
     machine.reset()
 
-# ---------------- wifi a demanda (BLE apagado: no coexisten) ----------------
-# En el ESP32 clasico WiFi + BLE a la vez agotan la RAM (OSError: WiFi Out of
-# Memory) y el arranque entraba en bucle de reset. Por eso el arranque es
-# SOLO-BLE y el WiFi se enciende a demanda apagando antes el BLE; al terminar
-# se vuelve a levantar el BLE.
+# ---------------- wifi a demanda (BLE apagado: NO coexisten) ----------------
+# En este ESP32 clasico WiFi + BLE a la vez NO es viable: o da "OSError: WiFi
+# Out of Memory" (BLE antes que WiFi) o hard-crashea el controlador
+# (Guru Meditation / npl_freertos_eventq_init) si se intenta coexistir. Por eso
+# el arranque es SOLO-BLE y el WiFi se enciende a demanda apagando antes el BLE.
 def _ble_down():
     global ble
     try:
@@ -365,16 +415,14 @@ def _ble_down():
     gc.collect()
 
 def wifi_task(do_ota=False):
-    cfg = load_cfg()
-    ssid = cfg.get("ssid", "")
-    pw = cfg.get("pass", "")
-    if not ssid:
+    if not nets_list():
         set_net("wifi:sin red")
         return
     _ble_down()
     try:
         set_net("wifi:conectando")
-        if wifi_connect(ssid, pw):
+        ssid = wifi_connect_any()
+        if ssid:
             set_net("wifi:ok " + wlan.ifconfig()[0])
             if do_ota:
                 ota_check()   # si actualiza, reinicia (no vuelve de aqui)
@@ -390,7 +438,7 @@ def wifi_task(do_ota=False):
 # ---------------- BLE ----------------
 # modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos |
 #       6 Rebote | 7 Halloween | 8 Navidad
-state = {"bright": 40, "speed": 50, "hue": 0, "sat": 255, "mode": 1}
+state = {"bright": 5, "speed": 50, "hue": 0, "sat": 255, "mode": 1}
 
 h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
 pending = None
@@ -454,20 +502,32 @@ def start_ble():
     advertise()
 
 # ---------------- comandos (fuera del IRQ) ----------------
+def _goto_net(mode):
+    # Cambia a un arranque de red: deja la bandera y reinicia. boot.py hara el
+    # WiFi/OTA (WiFi y BLE no conviven en una misma sesion en este ESP32).
+    set_net("reiniciando:" + mode)
+    try:
+        with open("mode.txt", "w") as f:
+            f.write(mode)
+    except Exception:
+        set_net("cmd:error")
+        return
+    time.sleep_ms(300)
+    machine.reset()
+
 def handle_cmd(c):
     if c.startswith("W"):
         parts = c.split("\t")
         ssid = parts[1] if len(parts) > 1 else ""
         pw = parts[2] if len(parts) > 2 else ""
-        save_cfg({"ssid": ssid, "pass": pw})
-        wifi_task(do_ota=False)
+        add_net(ssid, pw)
+        _goto_net("wifi")
     elif c == "C":
-        wifi_task(do_ota=False)
+        _goto_net("wifi")
     elif c == "X":
-        wifi_off()
         set_net("wifi:off")
     elif c == "U":
-        wifi_task(do_ota=True)
+        _goto_net("ota")
     elif c == "R":
         set_net("reiniciando")
         time.sleep_ms(200)
@@ -623,6 +683,168 @@ def render():
     elif m == 8: fx_navidad()
     _np.write()
 
+# ---------------- servidor HTTP (LAN) ----------------
+# API minima (GET): /api/state, /api/set?bright=&speed=&hue=&sat=&mode=,
+# /api/wifi?add=SSID&pass= | ?del=SSID, /api/ota, /api/reboot.
+http_sock = None
+
+def _jesc(s):
+    out = ""
+    for ch in s:
+        if ch == '"' or ch == "\\":
+            out += "\\" + ch
+        elif ch == "\n":
+            out += "\\n"
+        elif ch == "\r":
+            out += "\\r"
+        else:
+            out += ch
+    return out
+
+def _url_decode(s):
+    s = s.replace("+", " ")
+    out = ""
+    i = 0
+    while i < len(s):
+        if s[i] == "%" and i + 2 < len(s):
+            try:
+                out += chr(int(s[i + 1:i + 3], 16))
+                i += 3
+                continue
+            except Exception:
+                pass
+        out += s[i]
+        i += 1
+    return out
+
+def _parse_qs(q):
+    d = {}
+    if not q:
+        return d
+    for kv in q.split("&"):
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+        else:
+            k, v = kv, ""
+        d[_url_decode(k)] = _url_decode(v)
+    return d
+
+def _clamp(v, lo, hi):
+    return lo if v < lo else (hi if v > hi else v)
+
+def _state_json():
+    ip = ""
+    try:
+        if wlan is not None and wlan.isconnected():
+            ip = wlan.ifconfig()[0]
+    except Exception:
+        pass
+    nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
+    return ('{"ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,'
+            '"net":"%s","ip":"%s","nets":[%s]}'
+            % (FW_VERSION, state["bright"], state["speed"], state["hue"],
+               state["sat"], state["mode"], _jesc(netmsg), ip, nets))
+
+def _apply_param(k, v):
+    if k == "bright":
+        state["bright"] = _clamp(int(v), 0, 255)
+    elif k == "speed":
+        state["speed"] = _clamp(int(v), 0, 100)
+    elif k == "hue":
+        state["hue"] = _clamp(int(v), 0, 255)
+    elif k == "sat":
+        state["sat"] = _clamp(int(v), 0, 255)
+    elif k == "mode":
+        state["mode"] = _clamp(int(v), 0, 8)
+
+def _push_ble():
+    try:
+        ble.gatts_write(h_bright, bytes([state["bright"]]))
+        ble.gatts_write(h_speed,  bytes([state["speed"]]))
+        ble.gatts_write(h_hue,    bytes([state["hue"]]))
+        ble.gatts_write(h_mode,   bytes([state["mode"]]))
+        ble.gatts_write(h_sat,    bytes([state["sat"]]))
+    except Exception:
+        pass
+
+def http_start():
+    global http_sock
+    try:
+        s = socket.socket()
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("0.0.0.0", 80))
+        s.listen(2)
+        s.setblocking(False)
+        http_sock = s
+    except Exception:
+        http_sock = None
+
+def http_ensure():
+    if http_sock is None and wlan is not None and wlan.isconnected():
+        http_start()
+
+def _http_reply(c, body):
+    r = ("HTTP/1.0 200 OK\r\n"
+         "Content-Type: application/json\r\n"
+         "Access-Control-Allow-Origin: *\r\n"
+         "Content-Length: " + str(len(body)) + "\r\n"
+         "Connection: close\r\n\r\n" + body)
+    c.send(r.encode())
+
+def http_handle(path, q):
+    global pending
+    if path == "/api/state":
+        return _state_json()
+    if path == "/api/set":
+        for k in ("bright", "speed", "hue", "sat", "mode"):
+            if k in q:
+                try:
+                    _apply_param(k, q[k])
+                except Exception:
+                    pass
+        _push_ble()
+        return _state_json()
+    if path == "/api/wifi":
+        if "add" in q:
+            add_net(q["add"], q.get("pass", ""))
+            pending = "W\t" + q["add"] + "\t" + q.get("pass", "")
+        elif "del" in q:
+            del_net(q["del"])
+        return _state_json()
+    if path == "/api/ota":
+        pending = "U"
+        return '{"ok":true,"msg":"ota iniciada"}'
+    if path == "/api/reboot":
+        pending = "R"
+        return '{"ok":true,"msg":"reiniciando"}'
+    return '{"error":"ruta desconocida"}'
+
+def http_poll():
+    if http_sock is None:
+        return
+    try:
+        c, _ = http_sock.accept()
+    except Exception:
+        return
+    try:
+        c.settimeout(1)
+        req = c.recv(512)
+        line = req.split(b"\r\n", 1)[0].decode("utf-8", "ignore")
+        parts = line.split(" ")
+        path = parts[1] if len(parts) > 1 else "/"
+        q = ""
+        if "?" in path:
+            path, q = path.split("?", 1)
+        body = http_handle(path, _parse_qs(q))
+        _http_reply(c, body)
+    except Exception:
+        pass
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+
 # ---------------- bucle principal ----------------
 def loop():
     global pending
@@ -631,6 +853,7 @@ def loop():
     committed = False
     last = time.ticks_ms()
     while True:
+        http_poll()
         if pending is not None:
             c = pending
             pending = None
@@ -657,8 +880,16 @@ def loop():
         time.sleep_ms(2)
 
 def main():
-    # SOLO BLE al arrancar: el WiFi se enciende a demanda (comando W/C/U) para
-    # no agotar la RAM (WiFi+BLE juntos = OSError). Asi el aro siempre arranca.
+    global netmsg
+    # Resultado del ultimo arranque de red (wifi/ota), si lo hubo: se publica
+    # por BLE y se borra.
+    try:
+        with open("status.txt") as f:
+            netmsg = f.read().strip()
+        os.remove("status.txt")
+    except Exception:
+        pass
+    # SOLO BLE: el WiFi se hace en un arranque aparte (bandera mode.txt + reset).
     start_ble()
     render()
     print("AroLED listo v" + FW_VERSION + " " + netmsg)

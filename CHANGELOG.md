@@ -2,6 +2,27 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [2.8] - 2026-10-12
+
+### Cambiado
+- **WiFi y BLE ya no coexisten**: en este ESP32 clásico intentarlo hard-crashea
+  el controlador (`Guru Meditation` / `npl_freertos_eventq_init`). El arranque
+  es **solo-BLE** y las operaciones de red (conectar WiFi, OTA) se hacen en un
+  **arranque aparte**: la app envía el comando por BLE, el aro escribe
+  `mode.txt` y **reinicia**; `boot.py` (que corre antes que `main.py`) conecta el
+  WiFi, ejecuta la OTA si toca, deja el resultado en `status.txt` y reinicia;
+  `main.py` publica ese estado por BLE. *(Solo firmware.)*
+- El aro guarda **varias redes WiFi** (`cfg.json` → `nets[]` + `last`) y conecta
+  la última que funcionó primero. *(Solo firmware.)*
+- La app **reconecta sola** tras un `W`/`U`/`R` (el aro se reinicia), en vez de
+  quedarse desconectada.
+
+### Agregado
+- `firmware/net.py`: red + OTA movidos a su propio módulo, que `boot.py` carga
+  solo en el arranque de red (el firmware completo en un solo módulo agotaba la
+  RAM del controlador). La OTA actualiza **los tres** ficheros
+  (`main.py`, `net.py`, `boot.py`) si están en el release.
+
 ## [2.5] - 2026-10-11
 
 ### Corregido
