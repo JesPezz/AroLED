@@ -2,6 +2,28 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [2.4] - 2026-10-11
+
+### Cambiado
+- La app **reintenta la conexión BLE automáticamente** (hasta 3 intentos, con
+  desconexión limpia entre ellos y mayor tiempo de espera); el error solo se
+  muestra tras agotar los intentos. Evita el fallo `GATT_CONN_TIMEOUT` tras
+  reflashear el ESP32. *(Solo app.)*
+
+## [2.3] - 2026-10-11
+
+### Corregido
+- El ESP32 levanta la **BLE antes** de conectar al WiFi, para no parecer bloqueado
+  durante el arranque (`net_startup` bloqueaba hasta ~1 min sin BLE ni luz).
+- `boot_guard` no entra en bucle infinito si no hay `main.bak`.
+
+## [2.2] - 2026-10-11
+
+### Corregido
+- Integridad OTA: el **sha256** pasa a ser la comprobación autoritativa y el
+  tamaño solo respaldo (evita falsos `ota:error tamano` al bajar de GitHub); los
+  errores incluyen longitudes para diagnóstico. *(Solo firmware.)*
+
 ## [2.1] - 2026-10-11
 
 ### Agregado

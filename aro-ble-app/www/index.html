@@ -271,22 +271,30 @@
     }
 
     async function connect(id, name) {
-      try {
-        setStatus("Conectando…");
-        try { await BLE.stopLEScan(); } catch (e) {}
-        await BLE.connect({ deviceId: id, timeout: 15000 });
-        await BLE.discoverServices({ deviceId: id });
-        deviceId = id;
-        $("devName").textContent = name || NAME;
-        $("scanCard").classList.add("hidden");
-        $("ctlCard").classList.remove("hidden");
-        setStatus("Conectado. Mueve los controles y cambia en vivo.");
-        startStatPoll();
-        readVer();
-        fillSsidFromPhone();
-      } catch (e) {
-        setStatus("No se pudo conectar: " + (e && e.message ? e.message : e));
+      try { await BLE.stopLEScan(); } catch (e) {}
+      var lastErr = null;
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try {
+          setStatus("Conectando… (intento " + attempt + "/3)");
+          try { await BLE.disconnect({ deviceId: id }); } catch (e) {}
+          await BLE.connect({ deviceId: id, timeout: 20000 });
+          await BLE.discoverServices({ deviceId: id });
+          deviceId = id;
+          $("devName").textContent = name || NAME;
+          $("scanCard").classList.add("hidden");
+          $("ctlCard").classList.remove("hidden");
+          setStatus("Conectado. Mueve los controles y cambia en vivo.");
+          startStatPoll();
+          readVer();
+          fillSsidFromPhone();
+          return;
+        } catch (e) {
+          lastErr = e;
+          try { await BLE.disconnect({ deviceId: id }); } catch (x) {}
+          await new Promise(function (r) { setTimeout(r, 1200); });
+        }
       }
+      setStatus("No se pudo conectar tras 3 intentos: " + (lastErr && lastErr.message ? lastErr.message : lastErr));
     }
 
     async function disconnect() {
