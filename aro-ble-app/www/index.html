@@ -114,6 +114,32 @@
       $("versions").textContent = "app v" + appVersion() + " · ESP v" + (esp || "—");
     }
 
+    // WiFi: recordar la ultima red y autocompletar el SSID actual del movil.
+    // (Android no permite leer la contrasena guardada; solo el nombre de la red.)
+    function loadWifi() {
+      try {
+        var s = localStorage.getItem("wifi_ssid") || "";
+        var p = localStorage.getItem("wifi_pass") || "";
+        if (s) $("ssid").value = s;
+        if (p) $("pass").value = p;
+      } catch (e) {}
+    }
+    function fillSsidFromPhone() {
+      try {
+        if ($("ssid").value) return;
+        if (window.AndroidApp && window.AndroidApp.getSsid) {
+          var s = window.AndroidApp.getSsid();
+          if (s && s.length) $("ssid").value = s;
+        }
+      } catch (e) {}
+    }
+    function saveWifi(s, p) {
+      try {
+        localStorage.setItem("wifi_ssid", s);
+        localStorage.setItem("wifi_pass", p);
+      } catch (e) {}
+    }
+
     var BLE = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe) ||
               (window.Capacitor && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BluetoothLe"));
 
@@ -257,6 +283,7 @@
         setStatus("Conectado. Mueve los controles y cambia en vivo.");
         startStatPoll();
         readVer();
+        fillSsidFromPhone();
       } catch (e) {
         setStatus("No se pudo conectar: " + (e && e.message ? e.message : e));
       }
@@ -345,7 +372,9 @@
     function stopStatPoll() { if (statTimer) { clearInterval(statTimer); statTimer = null; } }
 
     $("btnWifi").onclick = function () {
-      sendCmd("W\t" + $("ssid").value + "\t" + $("pass").value);
+      var s = $("ssid").value, p = $("pass").value;
+      saveWifi(s, p);
+      sendCmd("W\t" + s + "\t" + p);
       $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
     };
     $("btnUpd").onclick = function () { sendCmd("U"); };
@@ -355,7 +384,12 @@
     $("btnDisc").onclick = disconnect;
 
     // Auto-buscar al abrir
-    window.addEventListener("load", function () { showVersions(); setTimeout(startScan, 400); });
+    window.addEventListener("load", function () {
+      showVersions();
+      loadWifi();
+      setTimeout(fillSsidFromPhone, 1200);
+      setTimeout(startScan, 400);
+    });
   })();
   </script>
 </body>

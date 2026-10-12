@@ -2,6 +2,16 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [2.1] - 2026-10-11
+
+### Agregado
+- La app **autocompleta el SSID** de la red a la que está conectado el móvil
+  (permiso de ubicación) y **recuerda** la última red y contraseña introducidas.
+
+### Nota
+- Android no permite leer la contraseña WiFi guardada del sistema; la app solo
+  puede rellenar el nombre de la red y memorizar la clave que escribas una vez.
+
 ## [2.0] - 2026-10-11
 
 ### Agregado

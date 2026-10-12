@@ -1,9 +1,14 @@
 package com.aro.led;
 
+import android.Manifest;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -41,6 +46,13 @@ public class MainActivity extends BridgeActivity {
             getBridge().getWebView().addJavascriptInterface(new VersionBridge(), "AndroidApp");
         } catch (Exception ignored) {
         }
+        // Permiso para leer el SSID de la red actual (autocompletar WiFi en la web).
+        try {
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1001);
+            }
+        } catch (Exception ignored) {
+        }
         checkForUpdate();
     }
 
@@ -59,6 +71,34 @@ public class MainActivity extends BridgeActivity {
             } catch (Exception e) {
                 return 0;
             }
+        }
+
+        // SSID de la red a la que esta conectado el movil ("" si no se puede).
+        @JavascriptInterface
+        public String getSsid() {
+            return currentSsid();
+        }
+    }
+
+    // Android no expone la contrasena WiFi guardada; solo el SSID de la red actual.
+    private String currentSsid() {
+        try {
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                return "";
+            }
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm == null) return "";
+            WifiInfo wi = wm.getConnectionInfo();
+            if (wi == null) return "";
+            String s = wi.getSSID();
+            if (s == null) return "";
+            if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+                s = s.substring(1, s.length() - 1);
+            }
+            if (s.equals("<unknown ssid>") || s.equals("0x")) return "";
+            return s;
+        } catch (Exception e) {
+            return "";
         }
     }
 

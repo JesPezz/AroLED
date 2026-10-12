@@ -50,7 +50,9 @@ Controles: 9 modos (Color fijo, Arcoíris, Fuego, Cometa, Latido, Destellos,
 Rebote, Halloween y Navidad), rueda de color, brillo y velocidad. Además, desde
 la app se puede configurar el **WiFi del ESP32** y pedirle que **busque
 actualización (OTA)** o **se reinicie**. La app muestra la **versión de la app y
-la del ESP32** al conectar.
+la del ESP32** al conectar. Para el WiFi, la app **autocompleta el SSID** de la
+red del móvil y **recuerda** la red y contraseña introducidas (Android no deja
+leer la contraseña guardada del sistema; solo el nombre de la red).
 
 ## Protocolo BLE
 
