@@ -57,6 +57,8 @@
       <button data-m="4">Latido</button>
       <button data-m="5">Destellos</button>
       <button data-m="6">Rebote</button>
+      <button data-m="7">Halloween</button>
+      <button data-m="8">Navidad</button>
     </div>
 
     <div class="row"><label>Color</label></div>
@@ -82,6 +84,7 @@
     <div style="margin-top:8px"><button id="btnUpd">Buscar actualización del ESP32</button></div>
     <div style="margin-top:8px"><button id="btnReboot">Reiniciar ESP32</button></div>
     <div class="status" id="net" style="margin-top:12px"><span class="dot"></span>estado: —</div>
+    <div class="status" id="versions">app v— · ESP v—</div>
 
     <div style="margin-top:16px"><button id="btnDisc">Desconectar</button></div>
   </div>
@@ -97,7 +100,19 @@
     var CH_SAT    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a5";
     var CH_CMD    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a6";
     var CH_STAT   = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a7";
+    var CH_VER    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a8";
     var NAME = "AroLED";
+
+    // Version de la app (inyectada por MainActivity en la app nativa; "web" si no).
+    function appVersion() {
+      try {
+        if (window.AndroidApp && window.AndroidApp.getVersionName) return window.AndroidApp.getVersionName();
+      } catch (e) {}
+      return "web";
+    }
+    function showVersions(esp) {
+      $("versions").textContent = "app v" + appVersion() + " · ESP v" + (esp || "—");
+    }
 
     var BLE = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe) ||
               (window.Capacitor && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BluetoothLe"));
@@ -241,6 +256,7 @@
         $("ctlCard").classList.remove("hidden");
         setStatus("Conectado. Mueve los controles y cambia en vivo.");
         startStatPoll();
+        readVer();
       } catch (e) {
         setStatus("No se pudo conectar: " + (e && e.message ? e.message : e));
       }
@@ -315,6 +331,16 @@
         $("net").innerHTML = '<span class="dot"></span>estado: ' + (t || "—");
       } catch (e) { /* ignore */ }
     }
+    async function readVer() {
+      if (!deviceId) return;
+      try {
+        var r = await BLE.read({ deviceId: deviceId, service: SERVICE, characteristic: CH_VER });
+        var b = hexToBytes((r && r.value) || "");
+        var t = "";
+        for (var i = 0; i < b.length; i++) t += String.fromCharCode(b[i]);
+        showVersions(t || "—");
+      } catch (e) { showVersions("—"); }
+    }
     function startStatPoll() { stopStatPoll(); statTimer = setInterval(readStat, 1500); readStat(); }
     function stopStatPoll() { if (statTimer) { clearInterval(statTimer); statTimer = null; } }
 
@@ -329,7 +355,7 @@
     $("btnDisc").onclick = disconnect;
 
     // Auto-buscar al abrir
-    window.addEventListener("load", function () { setTimeout(startScan, 400); });
+    window.addEventListener("load", function () { showVersions(); setTimeout(startScan, 400); });
   })();
   </script>
 </body>

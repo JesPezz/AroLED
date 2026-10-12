@@ -1,3 +1,6 @@
+# AroLED - firmware MicroPython (ESP32)
+# OTA por GitHub Releases (release ESTABLE = /releases/latest).
+# Assets del release: "main.py" (este firmware) y, opcional, "main.py.sha256".
 import bluetooth, machine, neopixel, time, struct, math, random
 import os, json, network, socket
 from micropython import const
@@ -10,6 +13,8 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
+FW_VERSION = "2.0"
+
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
 CH_SPEED  = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a2")
@@ -18,11 +23,12 @@ CH_MODE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a4")
 CH_SAT    = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a5")
 CH_CMD    = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a6")
 CH_STAT   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a7")
+CH_VER    = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a8")
 
-# ---------------- config / version (flash) ----------------
-CFG_PATH = "cfg.json"
-VER_PATH = "ver.txt"
-OTA_URL  = "http://192.168.1.107:8800/ota/esp/aro-esp.json"
+# ---------------- config / OTA ----------------
+CFG_PATH     = "cfg.json"
+BOOTCNT_PATH = "bootcnt"
+OTA_API      = "https://api.github.com/repos/JesPezz/AroLED/releases/latest"
 
 def load_cfg():
     try:
@@ -38,22 +44,47 @@ def save_cfg(c):
     except Exception:
         pass
 
-def load_ver():
+def _read_int(path, d=0):
     try:
-        with open(VER_PATH) as f:
-            return f.read().strip()
+        return int(open(path).read().strip())
     except Exception:
-        return "0"
+        return d
 
-def save_ver(v):
+def _write_int(path, v):
     try:
-        with open(VER_PATH, "w") as f:
-            f.write(v)
+        with open(path, "w") as f:
+            f.write(str(v))
     except Exception:
         pass
 
+# ---------------- rollback automatico (boot-loop) ----------------
+# Si el firmware nuevo no llega a "confirmar" el arranque (3 reintentos),
+# se restaura main.bak y se reinicia. Ojo: una sola main.py (no hay boot.py),
+# asi que solo cubre fallos que provocan reset (excepcion -> reset en el
+# arranque o un colgado que acaba en WDT). Un cuelgue duro sin reset no se
+# recupera solo; para eso habria que anadir machine.WDT.
+def _restore_bak():
+    try:
+        src = open("main.bak", "rb").read()
+        with open("main.py", "wb") as f:
+            f.write(src)
+        os.remove("main.bak")
+        _write_int(BOOTCNT_PATH, 0)
+        return True
+    except Exception:
+        return False
+
+def boot_guard():
+    cnt = _read_int(BOOTCNT_PATH, 0) + 1
+    _write_int(BOOTCNT_PATH, cnt)
+    if cnt > 3:
+        _restore_bak()
+        machine.reset()
+
 # ---------------- estado de red publicado por BLE ----------------
 netmsg = "wifi:off"
+ble = None
+h_stat = None
 
 def set_net(m):
     global netmsg
@@ -93,70 +124,207 @@ def wifi_off():
         except Exception:
             pass
 
-# ---------------- HTTP (LAN, sin TLS) ----------------
-# ponytail: HTTP/1.0 plano y verificacion tamano+suma (servidor de confianza en LAN).
-def http_get(url, timeout=15):
-    if not url.startswith("http://"):
+# ---------------- HTTP/HTTPS ----------------
+def _split_url(url):
+    if url.startswith("https://"):
+        scheme, rest = "https", url[8:]
+    elif url.startswith("http://"):
+        scheme, rest = "http", url[7:]
+    else:
         return None
-    rest = url[7:]
     i = rest.find("/")
     hostport = rest[:i] if i >= 0 else rest
     path = rest[i:] if i >= 0 else "/"
+    if not hostport:
+        return None
     if ":" in hostport:
         host, ps = hostport.split(":", 1)
-        port = int(ps)
+        try:
+            port = int(ps)
+        except Exception:
+            return None
     else:
-        host, port = hostport, 80
-    data = None
-    s = None
+        host = hostport
+        port = 443 if scheme == "https" else 80
+    return (scheme, host, port, path)
+
+def _dechunk(s, data):
+    out = b""
+    while True:
+        while b"\r\n" not in data:
+            d = s.recv(1024)
+            if not d:
+                return out
+            data += d
+        line, data = data.split(b"\r\n", 1)
+        try:
+            size = int(line.split(b";")[0], 16)
+        except Exception:
+            return out
+        if size == 0:
+            return out
+        while len(data) < size + 2:
+            d = s.recv(1024)
+            if not d:
+                break
+            data += d
+        out += data[:size]
+        data = data[size + 2:]
+
+def _read_response(s):
+    buf = b""
+    j = -1
+    while j < 0:
+        d = s.recv(1024)
+        if not d:
+            break
+        buf += d
+        j = buf.find(b"\r\n\r\n")
+    if j < 0:
+        return None, {}, None
+    head = buf[:j].decode("utf-8", "ignore")
+    rest = buf[j + 4:]
+    lines = head.split("\r\n")
     try:
-        addr = socket.getaddrinfo(host, port)[0][-1]
-        s = socket.socket()
-        s.settimeout(timeout)
-        s.connect(addr)
-        s.send(b"GET " + path.encode() + b" HTTP/1.0\r\nHost: " +
-               host.encode() + b"\r\nConnection: close\r\n\r\n")
-        buf = b""
+        status = int(lines[0].split(" ")[1])
+    except Exception:
+        status = 0
+    headers = {}
+    for ln in lines[1:]:
+        k = ln.find(":")
+        if k > 0:
+            headers[ln[:k].strip().lower()] = ln[k + 1:].strip()
+    if "chunked" in headers.get("transfer-encoding", "").lower():
+        body = _dechunk(s, rest)
+    elif "content-length" in headers:
+        n = int(headers["content-length"])
+        body = rest
+        while len(body) < n:
+            d = s.recv(1024)
+            if not d:
+                break
+            body += d
+        body = body[:n]
+    else:
+        body = rest
         while True:
             d = s.recv(1024)
             if not d:
                 break
-            buf += d
-        j = buf.find(b"\r\n\r\n")
-        if j >= 0:
-            data = buf[j + 4:]
-    except Exception:
-        data = None
-    finally:
-        if s:
-            try:
-                s.close()
-            except Exception:
-                pass
-    return data
+            body += d
+    return status, headers, body
+
+def http_get(url, timeout=15, max_redirect=4):
+    for _ in range(max_redirect + 1):
+        parsed = _split_url(url)
+        if parsed is None:
+            return None
+        scheme, host, port, path = parsed
+        req = ("GET " + path + " HTTP/1.0\r\nHost: " + host +
+               "\r\nUser-Agent: AroLED\r\nAccept: */*\r\nConnection: close\r\n\r\n").encode()
+        s = None
+        status = None
+        headers = {}
+        body = None
+        try:
+            addr = socket.getaddrinfo(host, port)[0][-1]
+            s = socket.socket()
+            s.settimeout(timeout)
+            s.connect(addr)
+            if scheme == "https":
+                import ssl
+                s = ssl.wrap_socket(s, server_hostname=host)
+            s.send(req)
+            status, headers, body = _read_response(s)
+        except Exception:
+            body = None
+        finally:
+            if s:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        if status is None:
+            return None
+        if status in (301, 302, 303, 307, 308) and "location" in headers:
+            loc = headers["location"]
+            if loc.startswith("/"):
+                loc = scheme + "://" + host + loc
+            url = loc
+            continue
+        if status != 200:
+            return None
+        return body
+    return None
+
+def _ver_key(v):
+    v = v.strip()
+    if v[:1] in ("v", "V"):
+        v = v[1:]
+    v = v.split("-")[0].split("+")[0]
+    nums = []
+    for p in v.split("."):
+        n = ""
+        for ch in p:
+            if ch.isdigit():
+                n += ch
+            else:
+                break
+        nums.append(int(n) if n else 0)
+    while len(nums) < 2:
+        nums.append(0)
+    return nums[0] * 100 + nums[1]
 
 def ota_check():
     set_net("ota:consultando")
-    raw = http_get(OTA_URL)
+    raw = http_get(OTA_API, timeout=20)
     if not raw:
         set_net("ota:sin respuesta")
         return
     try:
-        m = json.loads(raw)
+        rel = json.loads(raw)
+        tag = rel.get("tag_name", "")
+        assets = rel.get("assets", [])
     except Exception:
         set_net("ota:json malo")
         return
-    cur = load_ver()
-    if m.get("version") == cur:
-        set_net("ota:al dia " + cur)
+    if _ver_key(tag) <= _ver_key(FW_VERSION):
+        set_net("ota:al dia " + FW_VERSION)
         return
-    set_net("ota:descargando")
-    body = http_get(m["url"])
-    if not body or len(body) != int(m.get("size", -1)):
+    url = None
+    size = None
+    shaurl = None
+    for a in assets:
+        nm = a.get("name", "")
+        if nm == "main.py":
+            url = a.get("browser_download_url")
+            size = a.get("size")
+        elif nm == "main.py.sha256":
+            shaurl = a.get("browser_download_url")
+    if not url:
+        set_net("ota:sin asset")
+        return
+    set_net("ota:descargando " + str(tag))
+    body = http_get(url, timeout=30, max_redirect=6)
+    if not body:
+        set_net("ota:descarga fallo")
+        return
+    if size is not None and len(body) != int(size):
         set_net("ota:error tamano")
         return
-    if "sum" in m and (sum(body) & 65535) != int(m["sum"]):
-        set_net("ota:error suma")
+    if shaurl:
+        shab = http_get(shaurl, timeout=15)
+        if shab:
+            import hashlib
+            exp = shab.decode().split()[0].strip()
+            if hashlib.sha256(body).hexdigest() != exp:
+                set_net("ota:error sha256")
+                return
+    # Validar sintaxis ANTES de sobrescribir: evita dejar el aro inservible.
+    try:
+        compile(body, "main.py", "exec")
+    except Exception:
+        set_net("ota:error sintaxis")
         return
     try:
         try:
@@ -167,62 +335,41 @@ def ota_check():
             f.write(body)
         os.rename("main.py", "main.bak")
         os.rename("main.py.new", "main.py")
-        save_ver(m["version"])
+        _write_int(BOOTCNT_PATH, 0)
     except Exception:
         set_net("ota:error escritura")
         return
-    set_net("ota:ok " + str(m["version"]) + " reiniciando")
+    set_net("ota:ok " + str(tag) + " reiniciando")
     time.sleep_ms(700)
     machine.reset()
 
 # ---------------- arranque: wifi + OTA (antes de BLE) ----------------
-_cfg = load_cfg()
-if _cfg.get("ssid"):
-    set_net("wifi:conectando")
-    if wifi_connect(_cfg["ssid"], _cfg.get("pass", "")):
-        set_net("wifi:ok " + wlan.ifconfig()[0])
-        ota_check()
+def net_startup():
+    cfg = load_cfg()
+    if cfg.get("ssid"):
+        set_net("wifi:conectando")
+        if wifi_connect(cfg["ssid"], cfg.get("pass", "")):
+            set_net("wifi:ok " + wlan.ifconfig()[0])
+            ota_check()
+        else:
+            set_net("wifi:error")
     else:
-        set_net("wifi:error")
-else:
-    set_net("wifi:off")
+        set_net("wifi:off")
 
 # ---------------- BLE ----------------
-# modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos | 6 Rebote
+# modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos |
+#       6 Rebote | 7 Halloween | 8 Navidad
 state = {"bright": 40, "speed": 50, "hue": 0, "sat": 255, "mode": 1}
 
-ble = bluetooth.BLE()
-ble.active(True)
-ble.config(gap_name="AroLED")
-
-((h_bright, h_speed, h_hue, h_mode, h_sat, h_cmd, h_stat),) = ble.gatts_register_services((
-    (SERVICE, (
-        (CH_BRIGHT, bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
-        (CH_SPEED,  bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
-        (CH_HUE,    bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
-        (CH_MODE,   bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
-        (CH_SAT,    bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
-        (CH_CMD,    bluetooth.FLAG_WRITE),
-        (CH_STAT,   bluetooth.FLAG_READ),
-    )),
-))
-
-ble.gatts_write(h_bright, bytes([state["bright"]]))
-ble.gatts_write(h_speed,  bytes([state["speed"]]))
-ble.gatts_write(h_hue,    bytes([state["hue"]]))
-ble.gatts_write(h_mode,   bytes([state["mode"]]))
-ble.gatts_write(h_sat,    bytes([state["sat"]]))
-ble.gatts_write(h_cmd,    bytes(20))
-ble.gatts_write(h_stat,   netmsg.encode())
+h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
+pending = None
+cmd_buf = b""
 
 def advertise():
     nm = b"AroLED"
     payload = struct.pack("BBB", 2, 0x01, 0x06)
     payload += struct.pack("BB", len(nm) + 1, 0x09) + nm
     ble.gap_advertise(100000, adv_data=payload)
-
-pending = None
-cmd_buf = b""
 
 def _irq(event, data):
     global cmd_buf, pending
@@ -247,8 +394,33 @@ def _irq(event, data):
                 pending = cmd_buf[:k].decode("utf-8", "ignore")
                 cmd_buf = b""
 
-ble.irq(_irq)
-advertise()
+def start_ble():
+    global ble, h_bright, h_speed, h_hue, h_mode, h_sat, h_cmd, h_stat, h_ver
+    ble = bluetooth.BLE()
+    ble.active(True)
+    ble.config(gap_name="AroLED")
+    ((h_bright, h_speed, h_hue, h_mode, h_sat, h_cmd, h_stat, h_ver),) = ble.gatts_register_services((
+        (SERVICE, (
+            (CH_BRIGHT, bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
+            (CH_SPEED,  bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
+            (CH_HUE,    bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
+            (CH_MODE,   bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
+            (CH_SAT,    bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
+            (CH_CMD,    bluetooth.FLAG_WRITE),
+            (CH_STAT,   bluetooth.FLAG_READ),
+            (CH_VER,    bluetooth.FLAG_READ),
+        )),
+    ))
+    ble.gatts_write(h_bright, bytes([state["bright"]]))
+    ble.gatts_write(h_speed,  bytes([state["speed"]]))
+    ble.gatts_write(h_hue,    bytes([state["hue"]]))
+    ble.gatts_write(h_mode,   bytes([state["mode"]]))
+    ble.gatts_write(h_sat,    bytes([state["sat"]]))
+    ble.gatts_write(h_cmd,    bytes(20))
+    ble.gatts_write(h_stat,   netmsg.encode())
+    ble.gatts_write(h_ver,    FW_VERSION.encode())
+    ble.irq(_irq)
+    advertise()
 
 # ---------------- comandos (fuera del IRQ) ----------------
 def handle_cmd(c):
@@ -310,6 +482,11 @@ pos = 0
 breath = 0.0
 bpos = 0.0
 bdir = 1
+hphase = 0.0
+nphase = 0.0
+
+_HALLOW = ((255, 90, 0), (150, 0, 255))   # naranja / morado
+_XMAS   = (200, 0, 0)                     # base rojo; verde y blanco abajo
 
 def fx_fixed():
     px = scaled(hsv(state["hue"], state["sat"], 255))
@@ -388,6 +565,30 @@ def fx_bounce():
     if bpos <= 0:
         bpos = 0; bdir = 1
 
+def fx_halloween():
+    # Naranja/morado alternos girando, con pulso lento y destellos blancos.
+    global hphase
+    v = 0.55 + 0.45 * (math.sin(hphase) * 0.5 + 0.5)
+    shift = int(hphase * 3) % 2
+    for i in range(NUM):
+        c = _HALLOW[(i + shift) % 2]
+        _np[i] = scaled((int(c[0] * v), int(c[1] * v), int(c[2] * v)))
+    if random.randint(0, 14) == 0:
+        _np[random.randint(0, NUM - 1)] = scaled((255, 255, 180))
+    hphase += 0.03 + state["speed"] * 0.004
+
+def fx_navidad():
+    # Segmentos rojo/verde que se desplazan + centelleo blanco.
+    global nphase
+    seg = 4
+    phase = int(nphase) % (2 * seg)
+    for i in range(NUM):
+        g = ((i + phase) // seg) % 2
+        _np[i] = scaled((200, 0, 0) if g == 0 else (0, 180, 0))
+    if random.randint(0, 9) == 0:
+        _np[random.randint(0, NUM - 1)] = scaled((255, 255, 255))
+    nphase += 0.2 + state["speed"] * 0.02
+
 def render():
     m = state["mode"]
     if m == 0: fx_fixed()
@@ -397,30 +598,55 @@ def render():
     elif m == 4: fx_breath()
     elif m == 5: fx_sparkle()
     elif m == 6: fx_bounce()
+    elif m == 7: fx_halloween()
+    elif m == 8: fx_navidad()
     _np.write()
 
-print("AroLED listo v" + load_ver() + " " + netmsg)
+# ---------------- bucle principal ----------------
+def loop():
+    global pending
+    stat_sent = None
+    boot_at = time.ticks_ms()
+    committed = False
+    last = time.ticks_ms()
+    while True:
+        if pending is not None:
+            c = pending
+            pending = None
+            try:
+                handle_cmd(c)
+            except Exception:
+                set_net("cmd:error")
+        if netmsg != stat_sent:
+            try:
+                ble.gatts_write(h_stat, netmsg.encode())
+            except Exception:
+                pass
+            stat_sent = netmsg
+        if not committed and time.ticks_diff(time.ticks_ms(), boot_at) > 3000:
+            _write_int(BOOTCNT_PATH, 0)
+            committed = True
+        now = time.ticks_ms()
+        interval = 200 - state["speed"] * 2
+        if interval < 8:
+            interval = 8
+        if time.ticks_diff(now, last) >= interval:
+            last = now
+            render()
+        time.sleep_ms(2)
 
-last = time.ticks_ms()
-stat_sent = None
-while True:
-    if pending is not None:
-        c = pending; pending = None
-        try:
-            handle_cmd(c)
-        except Exception:
-            set_net("cmd:error")
-    if netmsg != stat_sent:
-        try:
-            ble.gatts_write(h_stat, netmsg.encode())
-        except Exception:
-            pass
-        stat_sent = netmsg
-    now = time.ticks_ms()
-    interval = 200 - state["speed"] * 2
-    if interval < 8:
-        interval = 8
-    if time.ticks_diff(now, last) >= interval:
-        last = now
-        render()
-    time.sleep_ms(2)
+def main():
+    global pending
+    net_startup()
+    start_ble()
+    print("AroLED listo v" + FW_VERSION + " " + netmsg)
+    loop()
+
+boot_guard()
+try:
+    main()
+except Exception:
+    # Fallo al arrancar: dejar que boot_guard reintente y, si persiste, revierta.
+    pending = None
+    time.sleep_ms(500)
+    machine.reset()
