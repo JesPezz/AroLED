@@ -1,0 +1,11 @@
+import gc, bluetooth, network, time
+print("heap0", gc.mem_free())
+b = bluetooth.BLE()
+b.active(True)
+print("heap1", gc.mem_free())
+w = network.WLAN(network.STA_IF)
+w.active(True)
+print("heap2", gc.mem_free())
+print("both_on")
+time.sleep_ms(300)
+print("alive", gc.mem_free(), "active", b.active())

@@ -1,0 +1,9 @@
+{
+  "appId": "com.aro.led",
+  "appName": "AroLED",
+  "webDir": "www",
+  "backgroundColor": "#0a0e1e",
+  "android": {
+    "allowMixedContent": false
+  }
+}

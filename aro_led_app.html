@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AroLED - Control</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: system-ui, sans-serif;
+    background: #0e0e12; color: #eee;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 24px 16px; gap: 20px;
+  }
+  h1 { margin: 8px 0 0; font-weight: 600; letter-spacing: .5px; }
+  .ring {
+    width: 120px; height: 120px; border-radius: 50%;
+    background: conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red);
+    box-shadow: 0 0 40px #ff770055, inset 0 0 30px #0006;
+    transition: filter .15s;
+  }
+  button {
+    font-size: 1rem; padding: 12px 28px; border-radius: 999px; border: 0;
+    background: #2d7; color: #051; font-weight: 700; cursor: pointer;
+  }
+  button:disabled { background: #444; color: #999; cursor: default; }
+  .card {
+    width: 100%; max-width: 420px; background: #1a1a22; border-radius: 16px;
+    padding: 20px; display: flex; flex-direction: column; gap: 22px;
+  }
+  .row { display: flex; flex-direction: column; gap: 8px; }
+  .row .top { display: flex; justify-content: space-between; font-size: .95rem; color: #bbb; }
+  input[type=range] { width: 100%; accent-color: #2d7; height: 28px; }
+  input[type=color] {
+    width: 100%; height: 48px; border: 0; border-radius: 10px; background: none;
+    cursor: pointer; padding: 0;
+  }
+  #status { font-size: .9rem; min-height: 1.2em; color: #9cf; text-align: center; }
+  .err { color: #f88; }
+  .hint { font-size: .78rem; color: #777; max-width: 420px; text-align: center; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="ring" id="ring"></div>
+  <h1>AroLED</h1>
+  <button id="connect">Conectar</button>
+  <div id="status">Sin conectar</div>
+
+  <div class="card">
+    <div class="row">
+      <div class="top"><span>Brillo</span><span id="bv">40</span></div>
+      <input type="range" id="bright" min="5" max="100" value="40">
+    </div>
+    <div class="row">
+      <div class="top"><span>Velocidad de giro</span><span id="sv">50</span></div>
+      <input type="range" id="speed" min="0" max="100" value="50">
+    </div>
+    <div class="row">
+      <div class="top"><span>Color del arcoiris</span></div>
+      <input type="color" id="hue" value="#ff0000">
+    </div>
+  </div>
+
+  <div class="hint">
+    Bluetooth LE &middot; dispositivo <b>AroLED</b>.<br>
+    Necesitas Chrome/Edge en Android o PC (Web Bluetooth). En el movil abre esta
+    pagina desde una URL <b>https://</b> o localhost.
+  </div>
+
+<script>
+const SERVICE = 'a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab';
+const CH = {
+  bright: 'a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1',
+  speed:  'a0e1e0a0-1b1c-4a2b-8c3d-1234567890a2',
+  hue:    'a0e1e0a0-1b1c-4a2b-8c3d-1234567890a3',
+};
+
+const $ = id => document.getElementById(id);
+let chars = {};
+
+function setStatus(msg, err) {
+  $('status').textContent = msg;
+  $('status').className = err ? 'err' : '';
+}
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    setStatus('Este navegador no soporta Web Bluetooth', true);
+    return;
+  }
+  $('connect').disabled = true;
+  try {
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'AroLED' }],
+      optionalServices: [SERVICE],
+    });
+    setStatus('Conectando...');
+    const server = await dev.gatt.connect();
+    const svc = await server.getPrimaryService(SERVICE);
+    chars.bright = await svc.getCharacteristic(CH.bright);
+    chars.speed  = await svc.getCharacteristic(CH.speed);
+    chars.hue    = await svc.getCharacteristic(CH.hue);
+    setStatus('Conectado a ' + (dev.name || 'AroLED'));
+
+    dev.addEventListener('gattserverdisconnected', () => {
+      chars = {};
+      $('connect').disabled = false;
+      setStatus('Desconectado. Pulsa Conectar de nuevo.');
+    });
+
+    send('bright', +$('bright').value);
+    send('speed', +$('speed').value);
+    send('hue', hexToHueByte($('hue').value));
+  } catch (e) {
+    setStatus('Error: ' + e.message, true);
+    $('connect').disabled = false;
+  }
+}
+
+function send(name, val) {
+  const c = chars[name];
+  if (!c) return;
+  val = Math.max(0, Math.min(255, val | 0));
+  c.writeValue(new Uint8Array([val])).catch(e => setStatus('Error al enviar: ' + e.message, true));
+}
+
+function hexToHueByte(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6;
+    if (h < 0) h += 1;
+  }
+  return Math.round(h * 255) % 256;
+}
+
+$('connect').addEventListener('click', connect);
+
+$('bright').addEventListener('input', e => {
+  $('bv').textContent = e.target.value;
+  send('bright', +e.target.value);
+});
+$('speed').addEventListener('input', e => {
+  $('sv').textContent = e.target.value;
+  send('speed', +e.target.value);
+});
+$('hue').addEventListener('input', e => {
+  send('hue', hexToHueByte(e.target.value));
+  document.querySelector('.ring').style.filter = 'saturate(1.4) brightness(1.1)';
+  setTimeout(() => document.querySelector('.ring').style.filter = '', 150);
+});
+</script>
+</body>
+</html>

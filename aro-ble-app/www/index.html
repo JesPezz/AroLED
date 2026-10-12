@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>AroLED</title>
+<style>
+  :root { --bg:#0a0e1e; --card:#161c33; --line:#26304f; --txt:#eef2ff; --sub:#8a94b8; --hi:#4da3ff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  body { padding:18px calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); }
+  h1 { font-size:22px; margin:6px 0 4px; letter-spacing:.5px; }
+  .status { color:var(--sub); font-size:14px; min-height:18px; margin-bottom:14px; }
+  button { font:inherit; color:var(--txt); background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:14px; width:100%; font-weight:600; }
+  button:active { background:#1f2a4d; }
+  button.primary { background:var(--hi); border-color:var(--hi); color:#02101f; }
+  button:disabled { opacity:.45; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:14px; }
+  .dev { display:flex; justify-content:space-between; align-items:center; padding:12px;
+    border:1px solid var(--line); border-radius:12px; margin-top:8px; background:#0f1428; }
+  .dev small { color:var(--sub); }
+  .row { display:flex; align-items:center; justify-content:space-between; margin:16px 0 6px; }
+  .row label { font-size:14px; color:var(--sub); }
+  .row b { font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; height:36px; accent-color:var(--hi); }
+  .wheelwrap { position:relative; width:230px; max-width:74vw; aspect-ratio:1/1; margin:8px auto 2px; touch-action:none; }
+  .wheelwrap canvas { width:100%; height:100%; display:block; border-radius:50%; box-shadow:0 0 0 1px var(--line); }
+  .marker { position:absolute; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:50%;
+    border:3px solid #fff; box-shadow:0 0 0 2px rgba(0,0,0,.65); pointer-events:none; }
+  .modes { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px; }
+  .modes button { padding:12px; }
+  .modes button.on { background:var(--hi); border-color:var(--hi); color:#02101f; }
+  .hidden { display:none !important; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#4ade80; margin-right:6px; }
+</style>
+</head>
+<body>
+  <h1>AroLED</h1>
+  <div class="status" id="status">Buscando el aro por Bluetooth…</div>
+
+  <div class="card" id="scanCard">
+    <button class="primary" id="btnScan">Buscar dispositivos</button>
+    <div id="devList"></div>
+  </div>
+
+  <div class="card hidden" id="ctlCard">
+    <div style="margin-bottom:6px"><span class="dot"></span><b id="devName">AroLED</b> conectado</div>
+
+    <div class="row"><label>Modo</label></div>
+    <div class="modes" id="modes">
+      <button data-m="0">Color fijo</button>
+      <button data-m="1" class="on">Arcoíris</button>
+      <button data-m="2">Fuego</button>
+      <button data-m="3">Cometa</button>
+      <button data-m="4">Latido</button>
+      <button data-m="5">Destellos</button>
+      <button data-m="6">Rebote</button>
+    </div>
+
+    <div class="row"><label>Color</label></div>
+    <div class="wheelwrap" id="wheelWrap">
+      <canvas id="wheel" width="240" height="240"></canvas>
+      <div class="marker" id="marker"></div>
+    </div>
+
+    <div class="row"><label>Brillo</label><b id="vBright">40</b></div>
+    <input type="range" id="bright" min="5" max="100" value="40" />
+
+    <div id="speedBlock">
+      <div class="row"><label>Velocidad</label><b id="vSpeed">50</b></div>
+      <input type="range" id="speed" min="0" max="100" value="50" />
+    </div>
+
+    <div class="row" style="margin-top:20px"><label>WiFi del ESP32</label></div>
+    <input id="ssid" placeholder="Nombre de la red (SSID)" autocomplete="off" autocapitalize="none"
+      style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit" />
+    <input id="pass" type="password" placeholder="Contraseña WiFi" autocomplete="off"
+      style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit;margin-top:8px" />
+    <div style="margin-top:10px"><button id="btnWifi">Guardar y conectar WiFi</button></div>
+    <div style="margin-top:8px"><button id="btnUpd">Buscar actualización del ESP32</button></div>
+    <div style="margin-top:8px"><button id="btnReboot">Reiniciar ESP32</button></div>
+    <div class="status" id="net" style="margin-top:12px"><span class="dot"></span>estado: —</div>
+
+    <div style="margin-top:16px"><button id="btnDisc">Desconectar</button></div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+    var SERVICE = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab";
+    var CH_BRIGHT = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1";
+    var CH_SPEED  = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a2";
+    var CH_HUE    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a3";
+    var CH_MODE   = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a4";
+    var CH_SAT    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a5";
+    var CH_CMD    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a6";
+    var CH_STAT   = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a7";
+    var NAME = "AroLED";
+
+    var BLE = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe) ||
+              (window.Capacitor && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BluetoothLe"));
+
+    var $ = function (id) { return document.getElementById(id); };
+    var deviceId = null;
+    var scanListener = null;
+    var found = {};
+    var curHue = 0, curSat = 255;
+
+    function setStatus(t) { $("status").textContent = t; }
+    function hexByte(v) { return (v & 0xff).toString(16).padStart(2, "0"); }
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    // ---- escritura "en vivo" con throttle por característica ----
+    var queue = {}, sending = {};
+    function writeLive(char, value) {
+      if (!deviceId) return;
+      queue[char] = value;
+      if (!sending[char]) sendLoop(char);
+    }
+    async function sendLoop(char) {
+      sending[char] = true;
+      while (queue[char] !== undefined) {
+        var v = queue[char]; queue[char] = undefined;
+        try {
+          await BLE.write({ deviceId: deviceId, service: SERVICE, characteristic: char, value: hexByte(v) });
+        } catch (e) { /* ignore transient write errors */ }
+        await sleep(25);
+      }
+      sending[char] = false;
+    }
+
+    // ---- rueda de color circular (Hue=angulo, Sat=radio) ----
+    function hsv2rgb(h, s, v) {
+      h = ((h % 360) + 360) % 360;
+      var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c, r, g, b;
+      if (h < 60) { r = c; g = x; b = 0; }
+      else if (h < 120) { r = x; g = c; b = 0; }
+      else if (h < 180) { r = 0; g = c; b = x; }
+      else if (h < 240) { r = 0; g = x; b = c; }
+      else if (h < 300) { r = x; g = 0; b = c; }
+      else { r = c; g = 0; b = x; }
+      return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+    }
+
+    function drawWheel() {
+      var cv = $("wheel"), ctx = cv.getContext("2d"), n = cv.width, R = n / 2;
+      var img = ctx.createImageData(n, n), d = img.data;
+      for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) {
+        var dx = x - R + 0.5, dy = y - R + 0.5, dist = Math.sqrt(dx * dx + dy * dy), i = (y * n + x) * 4;
+        if (dist <= R) {
+          var ang = Math.atan2(dy, dx) * 180 / Math.PI; if (ang < 0) ang += 360;
+          var rgb = hsv2rgb(ang, Math.min(1, dist / R), 1);   // centro blanco -> borde saturado
+          d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2]; d[i + 3] = 255;
+        } else { d[i + 3] = 0; }
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    function hueSatFromEvent(e) {
+      var cv = $("wheel"), r = cv.getBoundingClientRect();
+      var x = (e.clientX - r.left) / r.width * 2 - 1, y = (e.clientY - r.top) / r.height * 2 - 1;
+      var dist = Math.sqrt(x * x + y * y);
+      var sat = Math.max(0, Math.min(1, dist)) * 255;
+      var ang = Math.atan2(y, x) * 180 / Math.PI; if (ang < 0) ang += 360;
+      if (x === 0 && y === 0) ang = 0;
+      return { hue: Math.round(ang / 360 * 255) & 255, sat: Math.round(sat) };
+    }
+
+    function placeMarker() {
+      var cv = $("wheel"), R = cv.width / 2;
+      var ang = curHue / 255 * 360 * Math.PI / 180, rr = R * (curSat / 255);
+      var x = R + Math.cos(ang) * rr, y = R + Math.sin(ang) * rr, m = $("marker");
+      m.style.left = (x / cv.width * 100) + "%";
+      m.style.top = (y / cv.height * 100) + "%";
+      var rgb = hsv2rgb(curHue / 255 * 360, curSat / 255, 1);
+      m.style.background = "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")";
+    }
+
+    function pickColor(e) {
+      var hsv = hueSatFromEvent(e);
+      curHue = hsv.hue; curSat = hsv.sat;
+      placeMarker();
+      setMode(0);
+      writeLive(CH_HUE, curHue);
+      writeLive(CH_SAT, curSat);
+    }
+
+    function renderList() {
+      var list = $("devList");
+      list.innerHTML = "";
+      Object.keys(found).forEach(function (id) {
+        var d = found[id];
+        var div = document.createElement("div");
+        div.className = "dev";
+        div.innerHTML = "<div><b>" + (d.name || NAME) + "</b><br><small>" +
+          (d.rssi != null ? d.rssi + " dBm" : "") + "</small></div><div>›</div>";
+        div.onclick = function () { connect(id, d.name); };
+        list.appendChild(div);
+      });
+    }
+
+    async function startScan() {
+      try {
+        $("btnScan").disabled = true;
+        setStatus("Pidiendo permisos…");
+        await BLE.initialize({ androidNeverForLocation: true });
+        var en = await BLE.isEnabled();
+        if (!en.value) { await BLE.requestEnable(); }
+
+        var ens = await BLE.isEnabled();
+        if (!ens.value) { setStatus("Activa el Bluetooth del móvil y reintenta."); $("btnScan").disabled = false; return; }
+
+        setStatus("Buscando… enciende el aro si no aparece.");
+        found = {}; renderList();
+        if (!scanListener) {
+          scanListener = await BLE.addListener("onScanResult", function (res) {
+            var nm = res.localName || (res.device && res.device.name) || "";
+            if (nm !== NAME) return;
+            found[res.device.deviceId] = { name: nm, rssi: res.rssi };
+            renderList();
+          });
+        }
+        await BLE.requestLEScan({ allowDuplicates: false });
+      } catch (e) {
+        setStatus("Error al buscar: " + (e && e.message ? e.message : e));
+        $("btnScan").disabled = false;
+      }
+    }
+
+    async function connect(id, name) {
+      try {
+        setStatus("Conectando…");
+        try { await BLE.stopLEScan(); } catch (e) {}
+        await BLE.connect({ deviceId: id, timeout: 15000 });
+        await BLE.discoverServices({ deviceId: id });
+        deviceId = id;
+        $("devName").textContent = name || NAME;
+        $("scanCard").classList.add("hidden");
+        $("ctlCard").classList.remove("hidden");
+        setStatus("Conectado. Mueve los controles y cambia en vivo.");
+        startStatPoll();
+      } catch (e) {
+        setStatus("No se pudo conectar: " + (e && e.message ? e.message : e));
+      }
+    }
+
+    async function disconnect() {
+      try { if (deviceId) await BLE.disconnect({ deviceId: deviceId }); } catch (e) {}
+      deviceId = null;
+      stopStatPoll();
+      $("ctlCard").classList.add("hidden");
+      $("scanCard").classList.remove("hidden");
+      $("btnScan").disabled = false;
+      setStatus("Desconectado. Pulsa buscar para reconectar.");
+    }
+
+    // ---- controles ----
+    var modeBtns = Array.prototype.slice.call(document.querySelectorAll("#modes button"));
+    function setMode(m) {
+      modeBtns.forEach(function (b) { b.classList.toggle("on", +b.dataset.m === m); });
+      $("speedBlock").classList.toggle("hidden", m === 0);
+      writeLive(CH_MODE, m);
+    }
+    modeBtns.forEach(function (b) {
+      b.onclick = function () { setMode(+b.dataset.m); };
+    });
+
+    var wheelWrap = $("wheelWrap");
+    wheelWrap.addEventListener("pointerdown", function (e) {
+      try { wheelWrap.setPointerCapture(e.pointerId); } catch (x) {}
+      wheelWrap.dataset.drag = "1"; pickColor(e);
+    });
+    wheelWrap.addEventListener("pointermove", function (e) { if (wheelWrap.dataset.drag) pickColor(e); });
+    wheelWrap.addEventListener("pointerup", function () { wheelWrap.dataset.drag = ""; });
+    wheelWrap.addEventListener("pointercancel", function () { wheelWrap.dataset.drag = ""; });
+    drawWheel(); placeMarker();
+    $("bright").oninput = function (e) { $("vBright").textContent = e.target.value; writeLive(CH_BRIGHT, +e.target.value); };
+    $("speed").oninput = function (e) { $("vSpeed").textContent = e.target.value; writeLive(CH_SPEED, +e.target.value); };
+
+    // ---- comandos al ESP32 (WiFi / OTA) ----
+    function bytesToHex(arr) {
+      var s = "";
+      for (var i = 0; i < arr.length; i++) s += hexByte(arr[i]);
+      return s;
+    }
+    function hexToBytes(h) {
+      var out = [];
+      for (var i = 0; i + 1 < h.length; i += 2) out.push(parseInt(h.substr(i, 2), 16));
+      return out;
+    }
+
+    async function sendCmd(str) {
+      if (!deviceId) return;
+      var bytes = Array.prototype.slice.call(new TextEncoder().encode(str));
+      var CH = 18;
+      for (var i = 0; i < bytes.length; i += CH) {
+        var part = bytes.slice(i, i + CH);
+        if (i + CH >= bytes.length) part.push(0);
+        try {
+          await BLE.write({ deviceId: deviceId, service: SERVICE, characteristic: CH_CMD, value: bytesToHex(part) });
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    var statTimer = null;
+    async function readStat() {
+      if (!deviceId) return;
+      try {
+        var r = await BLE.read({ deviceId: deviceId, service: SERVICE, characteristic: CH_STAT });
+        var b = hexToBytes((r && r.value) || "");
+        var t = "";
+        for (var i = 0; i < b.length; i++) t += String.fromCharCode(b[i]);
+        $("net").innerHTML = '<span class="dot"></span>estado: ' + (t || "—");
+      } catch (e) { /* ignore */ }
+    }
+    function startStatPoll() { stopStatPoll(); statTimer = setInterval(readStat, 1500); readStat(); }
+    function stopStatPoll() { if (statTimer) { clearInterval(statTimer); statTimer = null; } }
+
+    $("btnWifi").onclick = function () {
+      sendCmd("W\t" + $("ssid").value + "\t" + $("pass").value);
+      $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
+    };
+    $("btnUpd").onclick = function () { sendCmd("U"); };
+    $("btnReboot").onclick = function () { sendCmd("R"); };
+
+    $("btnScan").onclick = startScan;
+    $("btnDisc").onclick = disconnect;
+
+    // Auto-buscar al abrir
+    window.addEventListener("load", function () { setTimeout(startScan, 400); });
+  })();
+  </script>
+</body>
+</html>
