@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "2.1"
+FW_VERSION = "2.2"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -309,17 +309,20 @@ def ota_check():
     if not body:
         set_net("ota:descarga fallo")
         return
-    if size is not None and len(body) != int(size):
-        set_net("ota:error tamano")
-        return
+    # Integridad: el sha256 del asset es la autoridad; el tamano es solo respaldo.
+    verified = False
     if shaurl:
         shab = http_get(shaurl, timeout=15)
         if shab:
             import hashlib
             exp = shab.decode().split()[0].strip()
             if hashlib.sha256(body).hexdigest() != exp:
-                set_net("ota:error sha256")
+                set_net("ota:error sha256 " + str(len(body)) + "/" + str(size))
                 return
+            verified = True
+    if not verified and size is not None and len(body) != int(size):
+        set_net("ota:error tamano " + str(len(body)) + "/" + str(size))
+        return
     # Validar sintaxis ANTES de sobrescribir: evita dejar el aro inservible.
     try:
         compile(body, "main.py", "exec")
