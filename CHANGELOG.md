@@ -2,6 +2,15 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [2.5] - 2026-10-11
+
+### Corregido
+- El ESP32 arranca **solo con BLE** y enciende el WiFi **a demanda** (comandos
+  `W`/`C`/`U`): en el ESP32 clásico WiFi + BLE simultáneos agotan la RAM
+  (`OSError: WiFi Out of Memory`), lo que dejaba el aro en bucle de reset y la
+  app sin poder conectar. Ahora el WiFi se enciende apagando el BLE primero y se
+  vuelve a levantar el BLE al terminar. *(Solo firmware.)*
+
 ## [2.4] - 2026-10-11
 
 ### Cambiado

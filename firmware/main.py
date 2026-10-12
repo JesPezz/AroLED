@@ -1,7 +1,7 @@
 # AroLED - firmware MicroPython (ESP32)
 # OTA por GitHub Releases (release ESTABLE = /releases/latest).
 # Assets del release: "main.py" (este firmware) y, opcional, "main.py.sha256".
-import bluetooth, machine, neopixel, time, struct, math, random
+import bluetooth, machine, neopixel, time, struct, math, random, gc
 import os, json, network, socket
 from micropython import const
 
@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "2.3"
+FW_VERSION = "2.5"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -349,18 +349,43 @@ def ota_check():
     time.sleep_ms(700)
     machine.reset()
 
-# ---------------- arranque: wifi + OTA (antes de BLE) ----------------
-def net_startup():
+# ---------------- wifi a demanda (BLE apagado: no coexisten) ----------------
+# En el ESP32 clasico WiFi + BLE a la vez agotan la RAM (OSError: WiFi Out of
+# Memory) y el arranque entraba en bucle de reset. Por eso el arranque es
+# SOLO-BLE y el WiFi se enciende a demanda apagando antes el BLE; al terminar
+# se vuelve a levantar el BLE.
+def _ble_down():
+    global ble
+    try:
+        if ble is not None:
+            ble.active(False)
+    except Exception:
+        pass
+    ble = None
+    gc.collect()
+
+def wifi_task(do_ota=False):
     cfg = load_cfg()
-    if cfg.get("ssid"):
+    ssid = cfg.get("ssid", "")
+    pw = cfg.get("pass", "")
+    if not ssid:
+        set_net("wifi:sin red")
+        return
+    _ble_down()
+    try:
         set_net("wifi:conectando")
-        if wifi_connect(cfg["ssid"], cfg.get("pass", "")):
+        if wifi_connect(ssid, pw):
             set_net("wifi:ok " + wlan.ifconfig()[0])
-            ota_check()
+            if do_ota:
+                ota_check()   # si actualiza, reinicia (no vuelve de aqui)
         else:
             set_net("wifi:error")
-    else:
-        set_net("wifi:off")
+    except Exception:
+        set_net("wifi:error")
+    finally:
+        wifi_off()
+        gc.collect()
+        start_ble()
 
 # ---------------- BLE ----------------
 # modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos |
@@ -430,29 +455,19 @@ def start_ble():
 
 # ---------------- comandos (fuera del IRQ) ----------------
 def handle_cmd(c):
-    global wlan
     if c.startswith("W"):
         parts = c.split("\t")
         ssid = parts[1] if len(parts) > 1 else ""
         pw = parts[2] if len(parts) > 2 else ""
         save_cfg({"ssid": ssid, "pass": pw})
-        set_net("wifi:conectando")
-        if wifi_connect(ssid, pw):
-            set_net("wifi:ok " + wlan.ifconfig()[0])
-        else:
-            set_net("wifi:error")
+        wifi_task(do_ota=False)
     elif c == "C":
-        cfg = load_cfg()
-        set_net("wifi:conectando")
-        if wifi_connect(cfg.get("ssid", ""), cfg.get("pass", "")):
-            set_net("wifi:ok " + wlan.ifconfig()[0])
-        else:
-            set_net("wifi:error")
+        wifi_task(do_ota=False)
     elif c == "X":
         wifi_off()
         set_net("wifi:off")
     elif c == "U":
-        ota_check()
+        wifi_task(do_ota=True)
     elif c == "R":
         set_net("reiniciando")
         time.sleep_ms(200)
@@ -642,12 +657,10 @@ def loop():
         time.sleep_ms(2)
 
 def main():
-    global pending
-    # BLE PRIMERO: el aro queda visible y manejable aunque la red o el OTA
-    # tarden o fallen (asi no parece "muerto" durante el arranque).
+    # SOLO BLE al arrancar: el WiFi se enciende a demanda (comando W/C/U) para
+    # no agotar la RAM (WiFi+BLE juntos = OSError). Asi el aro siempre arranca.
     start_ble()
     render()
-    net_startup()
     print("AroLED listo v" + FW_VERSION + " " + netmsg)
     loop()
 
