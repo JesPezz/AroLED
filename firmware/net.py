@@ -6,12 +6,14 @@ import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
 REPO = "JesPezz/AroLED"
-FW_VERSION = "3.1"   # mantener en sincronia con main.py
-# Manifiesto: firmware/version.txt de la rama main (raw.githack, sin cache).
-# NO se usa api.github.com: su handshake TLS cuelga de forma no determinista.
+FW_VERSION = "3.2"   # mantener en sincronia con main.py
+# Manifiesto: firmware/version.txt de la rama main. Se sirve directo desde
+# raw.githubusercontent.com (un solo handshake TLS, el mas fiable en el ESP32);
+# jsdelivr queda de respaldo. NO se usa api.github.com (su TLS cuelga).
+RAW = "https://raw.githubusercontent.com/" + REPO
 VERSION_URLS = (
-    "https://raw.githack.com/JesPezz/AroLED/main/firmware/version.txt",
-    "https://cdn.statically.io/gh/JesPezz/AroLED/main/firmware/version.txt",
+    RAW + "/main/firmware/version.txt",
+    "https://cdn.jsdelivr.net/gh/" + REPO + "@main/firmware/version.txt",
 )
 NUM = 16
 PIN = 23
@@ -427,14 +429,13 @@ OTA_FILES = ("main.py", "net.py", "boot.py")
 
 
 def _cdn_url(tag, name):
-    # raw.githack.com sirve el fichero versionado en git con certificado ECDSA,
-    # que el mbedtls del ESP32 SI completa; el host de assets del release usa
-    # RSA y cuelga/falla de forma no fiable.
-    return "https://raw.githack.com/" + REPO + "/" + tag + "/firmware/" + name
+    # raw.githubusercontent.com sirve el fichero versionado en git DIRECTAMENTE
+    # (un solo handshake TLS, sin redireccion): lo mas fiable en el ESP32.
+    return RAW + "/" + tag + "/firmware/" + name
 
 
 def _cdn2_url(tag, name):
-    return "https://cdn.statically.io/gh/" + REPO + "/" + tag + "/firmware/" + name
+    return "https://cdn.jsdelivr.net/gh/" + REPO + "@" + tag + "/firmware/" + name
 
 
 def _fetch_text(urls, tries=5):
@@ -459,30 +460,28 @@ def _fetch_file(tag, name, dest, tries=5):
     return 0
 
 
-def _check_syntax(path):
-    # No instalar un main.py que no compile: el aro quedaria en REPL sin
-    # rollback (boot_guard vive dentro de main.py).
-    try:
-        f = open(path)
-        body = f.read()
-        f.close()
-        compile(body, path, "exec")
-        return True
-    except Exception:
-        return False
-
-
 def ota_check():
     # Devuelve "ok", "al dia" o "err" (y deja el detalle en status.txt).
+    # El manifiesto (version.txt de main) trae la version y el sha256 de cada
+    # fichero: se verifica el hash (streaming, poca RAM) en vez de compilar.
     gc.collect()
-    tag = _fetch_text(VERSION_URLS)
-    if not tag:
+    txt = _fetch_text(VERSION_URLS)
+    if not txt:
         _status("ota:sin manifiesto")
         return "err"
-    tag = tag.split()[0]
+    lines = txt.split("\n")
+    tag = lines[0].strip().split()[0] if lines[0].strip() else ""
+    if not tag:
+        _status("ota:manifiesto malo")
+        return "err"
     if _ver_key(tag) <= _ver_key(FW_VERSION):
         _status("ota:al dia")
         return "al dia"
+    hashes = {}
+    for ln in lines[1:]:
+        p = ln.split()
+        if len(p) >= 2:
+            hashes[p[0]] = p[1].strip().lower()
     pend = []
     for name in OTA_FILES:
         _status("ota:descargando " + name)
@@ -491,8 +490,9 @@ def ota_check():
         if not n:
             _status("ota:descarga fallo " + name)
             return "err"
-        if name.endswith(".py") and not _check_syntax(dest):
-            _status("ota:error sintaxis " + name)
+        want = hashes.get(name)
+        if want and _file_sha256(dest) != want:
+            _status("ota:error hash " + name)
             return "err"
         pend.append(name)
     # Escribir/rotar solo al final (todos los .new ya estan en disco).
