@@ -2,6 +2,32 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.2] - 2026-10-12
+
+### Corregido
+- **OTA del firmware, arreglada de verdad**: la descarga fallaba por el TLS del
+  ESP32 (handshakes no deterministas) y por fragmentación de heap al validar con
+  `compile()`. Ahora los ficheros se bajan de `raw.githubusercontent.com` (un solo
+  handshake, con `cdn.jsdelivr.net` de respaldo) y se validan por **sha256** contra
+  un manifiesto (`firmware/version.txt` = versión + hash de cada fichero), sin
+  bufferear el cuerpo en RAM. Se actualizan `main.py`, `net.py` y `boot.py`.
+
+## [3.1] - 2026-10-12
+
+### Cambiado
+- La comprobación de actualizaciones deja de consultar la API de GitHub (lenta y a
+  veces colgaba) y lee un manifiesto de texto `firmware/version.txt`.
+
+## [3.0] - 2026-10-12
+
+### Agregado
+- Secuencia de LEDs al actualizar: punto azul girando durante la descarga y
+  destellos verdes (ok) o rojos (error) al terminar.
+
+### Corregido
+- La OTA descarga en **streaming a disco** (en vez de bufferear el cuerpo en RAM),
+  evitando `MemoryError` al bajar el firmware de ~31 KB.
+
 ## [2.9] - 2026-10-12
 
 ### Agregado
