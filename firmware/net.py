@@ -5,9 +5,14 @@
 import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
-OTA_API = "https://api.github.com/repos/JesPezz/AroLED/releases/latest"
 REPO = "JesPezz/AroLED"
-FW_VERSION = "3.0"   # mantener en sincronia con main.py
+FW_VERSION = "3.1"   # mantener en sincronia con main.py
+# Manifiesto: firmware/version.txt de la rama main (raw.githack, sin cache).
+# NO se usa api.github.com: su handshake TLS cuelga de forma no determinista.
+VERSION_URLS = (
+    "https://raw.githack.com/JesPezz/AroLED/main/firmware/version.txt",
+    "https://cdn.statically.io/gh/JesPezz/AroLED/main/firmware/version.txt",
+)
 NUM = 16
 PIN = 23
 
@@ -421,13 +426,6 @@ def _ver_key(v):
 OTA_FILES = ("main.py", "net.py", "boot.py")
 
 
-def _asset(assets, name):
-    for a in assets:
-        if a.get("name") == name:
-            return a.get("browser_download_url"), a.get("size")
-    return None, None
-
-
 def _cdn_url(tag, name):
     # raw.githack.com sirve el fichero versionado en git con certificado ECDSA,
     # que el mbedtls del ESP32 SI completa; el host de assets del release usa
@@ -439,48 +437,62 @@ def _cdn2_url(tag, name):
     return "https://cdn.statically.io/gh/" + REPO + "/" + tag + "/firmware/" + name
 
 
+def _fetch_text(urls, tries=5):
+    # Primer texto que responda; las fallas de raw.githack son rapidas.
+    for src in urls:
+        for _ in range(tries):
+            gc.collect()
+            raw = http_get(src, timeout=8)
+            if raw:
+                return raw.decode("utf-8", "ignore").strip()
+    return None
+
+
+def _fetch_file(tag, name, dest, tries=5):
+    # Descarga a disco desde el CDN (ECDSA). Devuelve bytes o 0.
+    for _ in range(tries):
+        for src in (_cdn_url(tag, name), _cdn2_url(tag, name)):
+            gc.collect()
+            n = _download(src, dest, timeout=30, max_redirect=6)
+            if n:
+                return n
+    return 0
+
+
+def _check_syntax(path):
+    # No instalar un main.py que no compile: el aro quedaria en REPL sin
+    # rollback (boot_guard vive dentro de main.py).
+    try:
+        f = open(path)
+        body = f.read()
+        f.close()
+        compile(body, path, "exec")
+        return True
+    except Exception:
+        return False
+
+
 def ota_check():
     # Devuelve "ok", "al dia" o "err" (y deja el detalle en status.txt).
     gc.collect()
-    raw = http_get(OTA_API, timeout=20)
-    if not raw:
-        _status("ota:sin respuesta")
+    tag = _fetch_text(VERSION_URLS)
+    if not tag:
+        _status("ota:sin manifiesto")
         return "err"
-    try:
-        rel = json.loads(raw)
-        tag = rel.get("tag_name", "")
-        assets = rel.get("assets", [])
-    except Exception:
-        _status("ota:json malo")
-        return "err"
-    del raw
-    gc.collect()
+    tag = tag.split()[0]
     if _ver_key(tag) <= _ver_key(FW_VERSION):
+        _status("ota:al dia")
         return "al dia"
     pend = []
     for name in OTA_FILES:
-        url, size = _asset(assets, name)
-        if not url:
-            if name == "main.py":
-                _status("ota:sin asset")
-                return "err"
-            continue
         _status("ota:descargando " + name)
         dest = name + ".new"
-        # Se baja del CDN (ECDSA, fiable); el asset del release (RSA) de ultimo.
-        n = 0
-        for src in (_cdn_url(tag, name), _cdn2_url(tag, name), url):
-            if not src:
-                continue
-            n = _download(src, dest, timeout=30, max_redirect=6)
-            if n:
-                break
+        n = _fetch_file(tag, name, dest)
         if not n:
             _status("ota:descarga fallo " + name)
             return "err"
-        # Integridad: el tamano del asset del release es la referencia.
-        if size is not None and n != int(size):
-            _status("ota:error tamano " + name)
+        if name.endswith(".py") and not _check_syntax(dest):
+            _status("ota:error sintaxis " + name)
             return "err"
         pend.append(name)
     # Escribir/rotar solo al final (todos los .new ya estan en disco).
