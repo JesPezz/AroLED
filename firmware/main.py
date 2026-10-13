@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "3.4"
+FW_VERSION = "3.5"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -298,6 +298,7 @@ bpos = 0.0
 bdir = 1
 hphase = 0.0
 nphase = 0.0
+specph = 0.0
 
 _HALLOW = ((255, 90, 0), (150, 0, 255))   # naranja / morado
 _XMAS   = (200, 0, 0)                     # base rojo; verde y blanco abajo
@@ -348,9 +349,11 @@ def fx_chase():
     pos = (pos + 1) % NUM
 
 def fx_breath():
+    # Respiracion: el brillo sube y baja, y el color recorre todo el espectro.
     global breath
     v = int((math.sin(breath) * 0.5 + 0.5) * 255)
-    px = scaled(hsv(state["hue"], state["sat"], v))
+    hue = (state["hue"] + int(breath * 40)) & 255
+    px = scaled(hsv(hue, state["sat"], v))
     for i in range(NUM):
         _np[i] = px
     breath += 0.06 + state["speed"] * 0.004
@@ -535,13 +538,19 @@ def fx_pacifica():
         _np[i] = scaled((0, g, b))
     pacph += 0.03 + state["speed"] * 0.004
 
-def render():
-    if not state["on"]:
-        for i in range(NUM):
-            _np[i] = (0, 0, 0)
-        _np.write()
-        return
-    m = state["mode"]
+def fx_spectrum():
+    # Color liso que recorre todo el espectro (siempre encendido).
+    global specph
+    px = scaled(hsv(int(specph) & 255, 255, 255))
+    for i in range(NUM):
+        _np[i] = px
+    specph += 1 + state["speed"] // 8
+
+_RND_MODES = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
+rnd_cur = 1
+rnd_cnt = 0
+
+def _run(m):
     if m == 0: fx_fixed()
     elif m == 1: fx_rainbow()
     elif m == 2: fx_fire()
@@ -563,6 +572,26 @@ def render():
     elif m == 18: fx_police()
     elif m == 19: fx_glitter()
     elif m == 20: fx_pacifica()
+    elif m == 21: fx_spectrum()
+
+def fx_random():
+    # Va saltando de efecto en efecto cada cierto tiempo.
+    global rnd_cur, rnd_cnt
+    rnd_cnt += 1
+    if rnd_cnt >= 90 - state["speed"] * 6 // 10:
+        rnd_cnt = 0
+        rnd_cur = random.choice(_RND_MODES)
+    _run(rnd_cur)
+
+def render():
+    if not state["on"]:
+        for i in range(NUM):
+            _np[i] = (0, 0, 0)
+        _np.write()
+        return
+    m = state["mode"]
+    if m == 22: fx_random()
+    else: _run(m)
     _np.write()
 
 # ---------------- servidor HTTP (LAN) ----------------
@@ -637,7 +666,7 @@ def _apply_param(k, v):
     elif k == "sat":
         state["sat"] = _clamp(int(v), 0, 255)
     elif k == "mode":
-        state["mode"] = _clamp(int(v), 0, 20)
+        state["mode"] = _clamp(int(v), 0, 22)
     elif k == "on":
         state["on"] = _clamp(int(v), 0, 1)
 

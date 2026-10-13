@@ -2,6 +2,17 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.5] - 2026-10-12
+
+### Agregado
+- Modo «Espectro» (21): color liso siempre encendido que recorre todo el
+  espectro de color.
+- Modo «Aleatorio» (22): va saltando de efecto en efecto cada pocos segundos.
+- Botones de los modos 21 y 22 en la app.
+
+### Cambiado
+- «Latido» (4) ahora recorre todo el espectro de color mientras respira.
+
 ## [3.4] - 2026-10-12
 
 ### Agregado
