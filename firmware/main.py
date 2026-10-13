@@ -1,7 +1,7 @@
 # AroLED - firmware MicroPython (ESP32)
 # OTA por GitHub Releases (release ESTABLE = /releases/latest).
 # Assets del release: "main.py" (este firmware) y, opcional, "main.py.sha256".
-import bluetooth, machine, neopixel, time, struct, math, random, gc
+import bluetooth, machine, neopixel, time, struct, math, random
 import os, json, network, socket
 from micropython import const
 
@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "3.2"
+FW_VERSION = "3.3"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -28,7 +28,24 @@ CH_VER    = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a8")
 # ---------------- config / OTA ----------------
 CFG_PATH     = "cfg.json"
 BOOTCNT_PATH = "bootcnt"
-OTA_API      = "https://api.github.com/repos/JesPezz/AroLED/releases/latest"
+NETMODE_PATH = "netmode.txt"   # "ble" (defecto) o "wifi" (API HTTP en LAN, sin BLE)
+
+def netmode():
+    try:
+        with open(NETMODE_PATH) as f:
+            m = f.read().strip()
+        if m in ("ble", "wifi"):
+            return m
+    except Exception:
+        pass
+    return "ble"
+
+def save_netmode(m):
+    try:
+        with open(NETMODE_PATH, "w") as f:
+            f.write("wifi" if m == "wifi" else "ble")
+    except Exception:
+        pass
 
 def load_cfg():
     try:
@@ -107,46 +124,21 @@ def set_net(m):
 # ---------------- wifi ----------------
 wlan = None
 
-def wifi_try(ssid, pw, tries=12):
+def _wifi_up():
+    # True si el WiFi ya quedo conectado (lo conecta boot.py en modo WiFi).
     global wlan
-    if not ssid:
-        return False
-    if wlan is None:
-        wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
     try:
-        wlan.disconnect()
-    except Exception:
-        pass
-    try:
-        wlan.connect(ssid, pw)
+        if wlan is None:
+            wlan = network.WLAN(network.STA_IF)
+        return wlan.isconnected()
     except Exception:
         return False
-    for _ in range(tries):
-        if wlan.isconnected():
-            return True
-        time.sleep_ms(500)
-    return wlan.isconnected()
-
-def wifi_off():
-    global wlan
-    if wlan is not None:
-        try:
-            wlan.active(False)
-        except Exception:
-            pass
 
 def nets_list():
     return load_cfg().get("nets", [])
 
 def net_ssids():
     return [n.get("ssid", "") for n in nets_list() if n.get("ssid")]
-
-def net_pass(ssid):
-    for n in nets_list():
-        if n.get("ssid") == ssid:
-            return n.get("pass", "")
-    return ""
 
 def add_net(ssid, pw):
     if not ssid:
@@ -161,279 +153,6 @@ def del_net(ssid):
     c = load_cfg()
     c["nets"] = [n for n in c.get("nets", []) if n.get("ssid") != ssid]
     save_cfg(c)
-
-def wifi_connect_any(tries=10):
-    # Prueba primero la ultima red buena y despues el resto.
-    c = load_cfg()
-    nets = c.get("nets", [])
-    if not nets:
-        return None
-    last = c.get("last", "")
-    order = sorted(nets, key=lambda n: 0 if n.get("ssid") == last else 1)
-    for n in order:
-        if wifi_try(n.get("ssid", ""), n.get("pass", ""), tries):
-            c["last"] = n.get("ssid", "")
-            save_cfg(c)
-            return n.get("ssid", "")
-    return None
-
-# ---------------- HTTP/HTTPS ----------------
-def _split_url(url):
-    if url.startswith("https://"):
-        scheme, rest = "https", url[8:]
-    elif url.startswith("http://"):
-        scheme, rest = "http", url[7:]
-    else:
-        return None
-    i = rest.find("/")
-    hostport = rest[:i] if i >= 0 else rest
-    path = rest[i:] if i >= 0 else "/"
-    if not hostport:
-        return None
-    if ":" in hostport:
-        host, ps = hostport.split(":", 1)
-        try:
-            port = int(ps)
-        except Exception:
-            return None
-    else:
-        host = hostport
-        port = 443 if scheme == "https" else 80
-    return (scheme, host, port, path)
-
-def _dechunk(s, data):
-    out = b""
-    while True:
-        while b"\r\n" not in data:
-            d = s.recv(1024)
-            if not d:
-                return out
-            data += d
-        line, data = data.split(b"\r\n", 1)
-        try:
-            size = int(line.split(b";")[0], 16)
-        except Exception:
-            return out
-        if size == 0:
-            return out
-        while len(data) < size + 2:
-            d = s.recv(1024)
-            if not d:
-                break
-            data += d
-        out += data[:size]
-        data = data[size + 2:]
-
-def _read_response(s):
-    buf = b""
-    j = -1
-    while j < 0:
-        d = s.recv(1024)
-        if not d:
-            break
-        buf += d
-        j = buf.find(b"\r\n\r\n")
-    if j < 0:
-        return None, {}, None
-    head = buf[:j].decode("utf-8", "ignore")
-    rest = buf[j + 4:]
-    lines = head.split("\r\n")
-    try:
-        status = int(lines[0].split(" ")[1])
-    except Exception:
-        status = 0
-    headers = {}
-    for ln in lines[1:]:
-        k = ln.find(":")
-        if k > 0:
-            headers[ln[:k].strip().lower()] = ln[k + 1:].strip()
-    if "chunked" in headers.get("transfer-encoding", "").lower():
-        body = _dechunk(s, rest)
-    elif "content-length" in headers:
-        n = int(headers["content-length"])
-        body = rest
-        while len(body) < n:
-            d = s.recv(1024)
-            if not d:
-                break
-            body += d
-        body = body[:n]
-    else:
-        body = rest
-        while True:
-            d = s.recv(1024)
-            if not d:
-                break
-            body += d
-    return status, headers, body
-
-def http_get(url, timeout=15, max_redirect=4):
-    for _ in range(max_redirect + 1):
-        parsed = _split_url(url)
-        if parsed is None:
-            return None
-        scheme, host, port, path = parsed
-        req = ("GET " + path + " HTTP/1.0\r\nHost: " + host +
-               "\r\nUser-Agent: AroLED\r\nAccept: */*\r\nConnection: close\r\n\r\n").encode()
-        s = None
-        status = None
-        headers = {}
-        body = None
-        try:
-            addr = socket.getaddrinfo(host, port)[0][-1]
-            s = socket.socket()
-            s.settimeout(timeout)
-            s.connect(addr)
-            if scheme == "https":
-                import ssl
-                s = ssl.wrap_socket(s, server_hostname=host)
-            s.send(req)
-            status, headers, body = _read_response(s)
-        except Exception:
-            body = None
-        finally:
-            if s:
-                try:
-                    s.close()
-                except Exception:
-                    pass
-        if status is None:
-            return None
-        if status in (301, 302, 303, 307, 308) and "location" in headers:
-            loc = headers["location"]
-            if loc.startswith("/"):
-                loc = scheme + "://" + host + loc
-            url = loc
-            continue
-        if status != 200:
-            return None
-        return body
-    return None
-
-def _ver_key(v):
-    v = v.strip()
-    if v[:1] in ("v", "V"):
-        v = v[1:]
-    v = v.split("-")[0].split("+")[0]
-    nums = []
-    for p in v.split("."):
-        n = ""
-        for ch in p:
-            if ch.isdigit():
-                n += ch
-            else:
-                break
-        nums.append(int(n) if n else 0)
-    while len(nums) < 2:
-        nums.append(0)
-    return nums[0] * 100 + nums[1]
-
-def ota_check():
-    set_net("ota:consultando")
-    raw = http_get(OTA_API, timeout=20)
-    if not raw:
-        set_net("ota:sin respuesta")
-        return
-    try:
-        rel = json.loads(raw)
-        tag = rel.get("tag_name", "")
-        assets = rel.get("assets", [])
-    except Exception:
-        set_net("ota:json malo")
-        return
-    if _ver_key(tag) <= _ver_key(FW_VERSION):
-        set_net("ota:al dia " + FW_VERSION)
-        return
-    url = None
-    size = None
-    shaurl = None
-    for a in assets:
-        nm = a.get("name", "")
-        if nm == "main.py":
-            url = a.get("browser_download_url")
-            size = a.get("size")
-        elif nm == "main.py.sha256":
-            shaurl = a.get("browser_download_url")
-    if not url:
-        set_net("ota:sin asset")
-        return
-    set_net("ota:descargando " + str(tag))
-    body = http_get(url, timeout=30, max_redirect=6)
-    if not body:
-        set_net("ota:descarga fallo")
-        return
-    # Integridad: el sha256 del asset es la autoridad; el tamano es solo respaldo.
-    verified = False
-    if shaurl:
-        shab = http_get(shaurl, timeout=15)
-        if shab:
-            import hashlib
-            exp = shab.decode().split()[0].strip()
-            if hashlib.sha256(body).hexdigest() != exp:
-                set_net("ota:error sha256 " + str(len(body)) + "/" + str(size))
-                return
-            verified = True
-    if not verified and size is not None and len(body) != int(size):
-        set_net("ota:error tamano " + str(len(body)) + "/" + str(size))
-        return
-    # Validar sintaxis ANTES de sobrescribir: evita dejar el aro inservible.
-    try:
-        compile(body, "main.py", "exec")
-    except Exception:
-        set_net("ota:error sintaxis")
-        return
-    try:
-        try:
-            os.remove("main.bak")
-        except Exception:
-            pass
-        with open("main.py.new", "wb") as f:
-            f.write(body)
-        os.rename("main.py", "main.bak")
-        os.rename("main.py.new", "main.py")
-        _write_int(BOOTCNT_PATH, 0)
-    except Exception:
-        set_net("ota:error escritura")
-        return
-    set_net("ota:ok " + str(tag) + " reiniciando")
-    time.sleep_ms(700)
-    machine.reset()
-
-# ---------------- wifi a demanda (BLE apagado: NO coexisten) ----------------
-# En este ESP32 clasico WiFi + BLE a la vez NO es viable: o da "OSError: WiFi
-# Out of Memory" (BLE antes que WiFi) o hard-crashea el controlador
-# (Guru Meditation / npl_freertos_eventq_init) si se intenta coexistir. Por eso
-# el arranque es SOLO-BLE y el WiFi se enciende a demanda apagando antes el BLE.
-def _ble_down():
-    global ble
-    try:
-        if ble is not None:
-            ble.active(False)
-    except Exception:
-        pass
-    ble = None
-    gc.collect()
-
-def wifi_task(do_ota=False):
-    if not nets_list():
-        set_net("wifi:sin red")
-        return
-    _ble_down()
-    try:
-        set_net("wifi:conectando")
-        ssid = wifi_connect_any()
-        if ssid:
-            set_net("wifi:ok " + wlan.ifconfig()[0])
-            if do_ota:
-                ota_check()   # si actualiza, reinicia (no vuelve de aqui)
-        else:
-            set_net("wifi:error")
-    except Exception:
-        set_net("wifi:error")
-    finally:
-        wifi_off()
-        gc.collect()
-        start_ble()
 
 # ---------------- BLE ----------------
 # modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos |
@@ -532,6 +251,13 @@ def handle_cmd(c):
         _goto_net("ota")
     elif c == "R":
         set_net("reiniciando")
+        time.sleep_ms(200)
+        machine.reset()
+    elif c.startswith("M"):
+        # M\twifi | M\tble : cambia el modo persistente y reinicia.
+        parts = c.split("\t")
+        save_netmode(parts[1] if len(parts) > 1 else "wifi")
+        set_net("reiniciando:" + netmode())
         time.sleep_ms(200)
         machine.reset()
     else:
@@ -887,9 +613,9 @@ def _state_json():
         pass
     nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
     return ('{"ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,'
-            '"net":"%s","ip":"%s","nets":[%s]}'
+            '"net":"%s","ip":"%s","netmode":"%s","nets":[%s]}'
             % (FW_VERSION, state["bright"], state["speed"], state["hue"],
-               state["sat"], state["mode"], _jesc(netmsg), ip, nets))
+               state["sat"], state["mode"], _jesc(netmsg), ip, netmode(), nets))
 
 def _apply_param(k, v):
     if k == "bright":
@@ -901,7 +627,7 @@ def _apply_param(k, v):
     elif k == "sat":
         state["sat"] = _clamp(int(v), 0, 255)
     elif k == "mode":
-        state["mode"] = _clamp(int(v), 0, 8)
+        state["mode"] = _clamp(int(v), 0, 20)
 
 def _push_ble():
     try:
@@ -922,8 +648,9 @@ def http_start():
         s.listen(2)
         s.setblocking(False)
         http_sock = s
-    except Exception:
+    except Exception as e:
         http_sock = None
+        print("http:error", repr(e))
 
 def http_ensure():
     if http_sock is None and wlan is not None and wlan.isconnected():
@@ -963,6 +690,10 @@ def http_handle(path, q):
     if path == "/api/reboot":
         pending = "R"
         return '{"ok":true,"msg":"reiniciando"}'
+    if path == "/api/mode":
+        m = q.get("set", "ble")
+        pending = "M\t" + m
+        return '{"ok":true,"mode":"' + m + '"}'
     return '{"error":"ruta desconocida"}'
 
 def http_poll():
@@ -1035,7 +766,21 @@ def main():
         os.remove("status.txt")
     except Exception:
         pass
-    # SOLO BLE: el WiFi se hace en un arranque aparte (bandera mode.txt + reset).
+    # Modo WiFi persistente: boot.py ya conecto la red; aqui solo se sirve la
+    # API HTTP por LAN (BLE apagado: no pueden convivir). Si no hay WiFi, se
+    # retrocede a BLE para no quedarse sin control.
+    if netmode() == "wifi" and _wifi_up():
+        try:
+            netmsg = "wifi:ok " + wlan.ifconfig()[0]
+        except Exception:
+            netmsg = "wifi:ok"
+        http_ensure()
+        render()
+        print("AroLED listo v" + FW_VERSION + " " + netmsg + " (HTTP"
+              + ("" if http_sock is not None else " NOSOCK") + ")")
+        loop()
+        return
+    # Modo BLE: el WiFi se hace en un arranque aparte (bandera mode.txt + reset).
     start_ble()
     render()
     print("AroLED listo v" + FW_VERSION + " " + netmsg)
@@ -1044,8 +789,13 @@ def main():
 boot_guard()
 try:
     main()
-except Exception:
+except Exception as e:
     # Fallo al arrancar: dejar que boot_guard reintente y, si persiste, revierta.
+    import sys
+    try:
+        sys.print_exception(e)
+    except Exception:
+        pass
     pending = None
     time.sleep_ms(500)
     machine.reset()

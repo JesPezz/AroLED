@@ -34,19 +34,23 @@
   .modes button.on { background:var(--hi); border-color:var(--hi); color:#02101f; }
   .hidden { display:none !important; }
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#4ade80; margin-right:6px; }
+  .inp { width:100%; padding:12px; border-radius:12px; border:1px solid var(--line); background:#0f1428; color:var(--txt); font:inherit; }
 </style>
 </head>
 <body>
   <h1>AroLED</h1>
-  <div class="status" id="status">Buscando el aro por Bluetooth…</div>
+  <div class="status" id="status">Buscando el aro…</div>
 
   <div class="card" id="scanCard">
-    <button class="primary" id="btnScan">Buscar dispositivos</button>
+    <button class="primary" id="btnScan">Buscar por Bluetooth</button>
     <div id="devList"></div>
+    <div class="row" style="margin-top:18px"><label>Conexión por WiFi (LAN)</label></div>
+    <input class="inp" id="ip" placeholder="IP del aro (p. ej. 192.168.1.106)" inputmode="decimal" autocomplete="off" />
+    <div style="margin-top:8px"><button id="btnHttp">Conectar por WiFi</button></div>
   </div>
 
   <div class="card hidden" id="ctlCard">
-    <div style="margin-bottom:6px"><span class="dot"></span><b id="devName">AroLED</b> conectado</div>
+    <div style="margin-bottom:6px"><span class="dot"></span><b id="devName">AroLED</b> <span id="via"></span></div>
 
     <div class="row"><label>Modo</label></div>
     <div class="modes" id="modes">
@@ -88,15 +92,16 @@
     </div>
 
     <div class="row" style="margin-top:20px"><label>WiFi del ESP32</label></div>
-    <input id="ssid" placeholder="Nombre de la red (SSID)" autocomplete="off" autocapitalize="none"
-      style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit" />
-    <input id="pass" type="password" placeholder="Contraseña WiFi" autocomplete="off"
-      style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit;margin-top:8px" />
+    <input class="inp" id="ssid" placeholder="Nombre de la red (SSID)" autocomplete="off" autocapitalize="none" />
+    <input class="inp" id="pass" type="password" placeholder="Contraseña WiFi" autocomplete="off" style="margin-top:8px" />
     <div style="margin-top:10px"><button id="btnWifi">Guardar y conectar WiFi</button></div>
     <div style="margin-top:8px"><button id="btnUpd">Buscar actualización del ESP32</button></div>
     <div style="margin-top:8px"><button id="btnReboot">Reiniciar ESP32</button></div>
     <div class="status" id="net" style="margin-top:12px"><span class="dot"></span>estado: —</div>
     <div class="status" id="versions">app v— · ESP v—</div>
+
+    <div class="row" style="margin-top:20px"><label>Conexión del aro</label></div>
+    <div style="margin-top:4px"><button id="btnMode">Pasar a WiFi (LAN)</button></div>
 
     <div style="margin-top:16px"><button id="btnDisc">Desconectar</button></div>
   </div>
@@ -114,6 +119,8 @@
     var CH_STAT   = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a7";
     var CH_VER    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a8";
     var NAME = "AroLED";
+
+    var $ = function (id) { return document.getElementById(id); };
 
     // Version de la app (inyectada por MainActivity en la app nativa; "web" si no).
     function appVersion() {
@@ -155,17 +162,31 @@
     var BLE = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BluetoothLe) ||
               (window.Capacitor && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BluetoothLe"));
 
-    var $ = function (id) { return document.getElementById(id); };
     var deviceId = null;
     var scanListener = null;
     var found = {};
     var curHue = 0, curSat = 255;
 
+    // ---------------- transporte: BLE o HTTP (LAN) ----------------
+    var MODE = "ble";     // "ble" | "http"
+    var httpBase = "";    // "http://<ip>"
+    function isHttp() { return MODE === "http" && !!httpBase; }
+    function loadIp() { try { return localStorage.getItem("aro_ip") || ""; } catch (e) { return ""; } }
+    function saveIp(ip) { try { localStorage.setItem("aro_ip", ip); } catch (e) {} }
+
+    function httpReq(path, ms) {
+      var ctrl = new AbortController();
+      var t = setTimeout(function () { ctrl.abort(); }, ms || 2500);
+      return fetch(httpBase + path, { signal: ctrl.signal })
+        .then(function (r) { clearTimeout(t); return r.ok ? r.json() : null; })
+        .catch(function () { clearTimeout(t); return null; });
+    }
+
     function setStatus(t) { $("status").textContent = t; }
     function hexByte(v) { return (v & 0xff).toString(16).padStart(2, "0"); }
     function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-    // ---- escritura "en vivo" con throttle por característica ----
+    // ---- escritura BLE "en vivo" con throttle por característica ----
     var queue = {}, sending = {};
     function writeLive(char, value) {
       if (!deviceId) return;
@@ -182,6 +203,16 @@
         await sleep(25);
       }
       sending[char] = false;
+    }
+
+    // Aplica un parametro por el transporte activo.
+    function applyParam(k, v) {
+      if (isHttp()) { httpReq("/api/set?" + k + "=" + v, 2000); return; }
+      if (k === "mode") writeLive(CH_MODE, v);
+      else if (k === "bright") writeLive(CH_BRIGHT, v);
+      else if (k === "speed") writeLive(CH_SPEED, v);
+      else if (k === "hue") writeLive(CH_HUE, v);
+      else if (k === "sat") writeLive(CH_SAT, v);
     }
 
     // ---- rueda de color circular (Hue=angulo, Sat=radio) ----
@@ -236,8 +267,8 @@
       curHue = hsv.hue; curSat = hsv.sat;
       placeMarker();
       setMode(0);
-      writeLive(CH_HUE, curHue);
-      writeLive(CH_SAT, curSat);
+      applyParam("hue", curHue);
+      applyParam("sat", curSat);
     }
 
     function renderList() {
@@ -265,7 +296,7 @@
         var ens = await BLE.isEnabled();
         if (!ens.value) { setStatus("Activa el Bluetooth del móvil y reintenta."); $("btnScan").disabled = false; return; }
 
-        setStatus("Buscando… enciende el aro si no aparece.");
+        setStatus("Buscando por Bluetooth… enciende el aro si no aparece.");
         found = {}; renderList();
         if (!scanListener) {
           scanListener = await BLE.addListener("onScanResult", function (res) {
@@ -292,10 +323,13 @@
           await BLE.connect({ deviceId: id, timeout: 20000 });
           await BLE.discoverServices({ deviceId: id });
           deviceId = id;
+          MODE = "ble"; httpBase = "";
           $("devName").textContent = name || NAME;
+          $("via").textContent = "(Bluetooth)";
           $("scanCard").classList.add("hidden");
           $("ctlCard").classList.remove("hidden");
-          setStatus("Conectado. Mueve los controles y cambia en vivo.");
+          setStatus("Conectado por Bluetooth.");
+          refreshModeBtn();
           startStatPoll();
           readVer();
           fillSsidFromPhone();
@@ -303,29 +337,60 @@
         } catch (e) {
           lastErr = e;
           try { await BLE.disconnect({ deviceId: id }); } catch (x) {}
-          await new Promise(function (r) { setTimeout(r, 1200); });
+          await sleep(1200);
         }
       }
       setStatus("No se pudo conectar tras 3 intentos: " + (lastErr && lastErr.message ? lastErr.message : lastErr));
     }
 
+    // Conecta por WiFi (LAN). Devuelve true si el aro responde.
+    async function connectHttp(ip) {
+      if (!ip) return false;
+      var prev = httpBase;
+      httpBase = "http://" + ip;
+      var st = await httpReq("/api/state", 3000);
+      if (!st) { httpBase = prev; return false; }
+      MODE = "http"; saveIp(ip);
+      $("devName").textContent = "AroLED";
+      $("via").textContent = "(WiFi " + ip + ")";
+      $("scanCard").classList.add("hidden");
+      $("ctlCard").classList.remove("hidden");
+      setStatus("Conectado por WiFi (" + ip + ").");
+      showVersions(st.ver);
+      applyState(st);
+      refreshModeBtn();
+      startStatPoll();
+      return true;
+    }
+
+    function applyState(st) {
+      if (st.mode != null) setModeUI(st.mode);
+      if (st.bright != null) { $("bright").value = st.bright; $("vBright").textContent = st.bright; }
+      if (st.speed != null) { $("speed").value = st.speed; $("vSpeed").textContent = st.speed; }
+      if (st.hue != null) curHue = st.hue;
+      if (st.sat != null) { curSat = st.sat; placeMarker(); }
+    }
+
     async function disconnect() {
-      try { if (deviceId) await BLE.disconnect({ deviceId: deviceId }); } catch (e) {}
-      deviceId = null;
-      stopStatPoll();
+      if (isHttp()) {
+        MODE = "ble"; httpBase = ""; stopStatPoll();
+      } else {
+        try { if (deviceId) await BLE.disconnect({ deviceId: deviceId }); } catch (e) {}
+        deviceId = null; stopStatPoll();
+      }
       $("ctlCard").classList.add("hidden");
       $("scanCard").classList.remove("hidden");
       $("btnScan").disabled = false;
-      setStatus("Desconectado. Pulsa buscar para reconectar.");
+      setStatus("Desconectado.");
     }
 
     // ---- controles ----
     var modeBtns = Array.prototype.slice.call(document.querySelectorAll("#modes button"));
-    function setMode(m) {
+    function setModeUI(m) {
       modeBtns.forEach(function (b) { b.classList.toggle("on", +b.dataset.m === m); });
       $("speedBlock").classList.toggle("hidden", m === 0);
-      writeLive(CH_MODE, m);
     }
+    function setMode(m) { setModeUI(m); applyParam("mode", m); }
     modeBtns.forEach(function (b) {
       b.onclick = function () { setMode(+b.dataset.m); };
     });
@@ -339,10 +404,10 @@
     wheelWrap.addEventListener("pointerup", function () { wheelWrap.dataset.drag = ""; });
     wheelWrap.addEventListener("pointercancel", function () { wheelWrap.dataset.drag = ""; });
     drawWheel(); placeMarker();
-    $("bright").oninput = function (e) { $("vBright").textContent = e.target.value; writeLive(CH_BRIGHT, +e.target.value); };
-    $("speed").oninput = function (e) { $("vSpeed").textContent = e.target.value; writeLive(CH_SPEED, +e.target.value); };
+    $("bright").oninput = function (e) { $("vBright").textContent = e.target.value; applyParam("bright", +e.target.value); };
+    $("speed").oninput = function (e) { $("vSpeed").textContent = e.target.value; applyParam("speed", +e.target.value); };
 
-    // ---- comandos al ESP32 (WiFi / OTA) ----
+    // ---- comandos al ESP32 por BLE (WiFi / OTA / modo) ----
     function bytesToHex(arr) {
       var s = "";
       for (var i = 0; i < arr.length; i++) s += hexByte(arr[i]);
@@ -369,6 +434,15 @@
 
     var statTimer = null;
     async function readStat() {
+      if (isHttp()) {
+        var st = await httpReq("/api/state", 2000);
+        if (st) {
+          $("net").innerHTML = '<span class="dot"></span>estado: ' + (st.net || "—") +
+            (st.netmode ? (" · " + st.netmode) : "");
+          showVersions(st.ver);
+        }
+        return;
+      }
       if (!deviceId) return;
       try {
         var r = await BLE.read({ deviceId: deviceId, service: SERVICE, characteristic: CH_STAT });
@@ -379,7 +453,7 @@
       } catch (e) { /* ignore */ }
     }
     async function readVer() {
-      if (!deviceId) return;
+      if (isHttp() || !deviceId) return;
       try {
         var r = await BLE.read({ deviceId: deviceId, service: SERVICE, characteristic: CH_VER });
         var b = hexToBytes((r && r.value) || "");
@@ -397,7 +471,7 @@
       var id = deviceId;
       setStatus("El aro se está reiniciando… esperando a que vuelva.");
       for (var i = 0; i < 14; i++) {
-        await new Promise(function (r) { setTimeout(r, 3000); });
+        await sleep(3000);
         try {
           try { await BLE.disconnect({ deviceId: id }); } catch (e) {}
           await BLE.connect({ deviceId: id, timeout: 15000 });
@@ -412,25 +486,83 @@
       stopStatPoll();
     }
 
-    $("btnWifi").onclick = function () {
+    // ---- cambio de modo del aro: BLE <-> WiFi ----
+    function refreshModeBtn() {
+      $("btnMode").textContent = isHttp() ? "Volver a Bluetooth" : "Pasar a WiFi (LAN)";
+    }
+    async function switchToWifi() {
+      if (isHttp()) return;
+      if (!deviceId) { setStatus("Conecta primero por Bluetooth."); return; }
+      sendCmd("M\twifi");
+      setStatus("El aro pasa a WiFi… buscando su IP.");
+      var ip = $("ip").value.trim() || loadIp();
+      var end = Date.now() + 25000;
+      while (Date.now() < end) {
+        await sleep(3000);
+        if (ip && await connectHttp(ip)) { $("ip").value = ip; return; }
+      }
+      setStatus("El aro está en modo WiFi. Escribe su IP y pulsa «Conectar por WiFi».");
+      deviceId = null;
+      $("ctlCard").classList.add("hidden");
+      $("scanCard").classList.remove("hidden");
+      $("btnScan").disabled = false;
+    }
+    async function switchToBle() {
+      if (!isHttp()) return;
+      await httpReq("/api/mode?set=ble", 2000);
+      MODE = "ble"; httpBase = ""; stopStatPoll();
+      $("ctlCard").classList.add("hidden");
+      $("scanCard").classList.remove("hidden");
+      $("btnScan").disabled = false;
+      setStatus("El aro vuelve a Bluetooth. Buscando…");
+      startScan();
+    }
+
+    $("btnWifi").onclick = async function () {
       var s = $("ssid").value, p = $("pass").value;
       saveWifi(s, p);
-      sendCmd("W\t" + s + "\t" + p);
-      $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
-      waitReconnect();
+      if (isHttp()) {
+        $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
+        await httpReq("/api/wifi?add=" + encodeURIComponent(s) + "&pass=" + encodeURIComponent(p), 4000);
+      } else {
+        sendCmd("W\t" + s + "\t" + p);
+        $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
+        waitReconnect();
+      }
     };
-    $("btnUpd").onclick = function () { sendCmd("U"); $("net").innerHTML = '<span class="dot"></span>estado: ota:enviando…'; waitReconnect(); };
-    $("btnReboot").onclick = function () { sendCmd("R"); waitReconnect(); };
+    $("btnUpd").onclick = async function () {
+      if (isHttp()) {
+        $("net").innerHTML = '<span class="dot"></span>estado: ota:enviando…';
+        await httpReq("/api/ota", 4000);
+      } else {
+        sendCmd("U"); $("net").innerHTML = '<span class="dot"></span>estado: ota:enviando…'; waitReconnect();
+      }
+    };
+    $("btnReboot").onclick = async function () {
+      if (isHttp()) { await httpReq("/api/reboot", 2000); }
+      else { sendCmd("R"); waitReconnect(); }
+    };
 
+    $("btnMode").onclick = function () { isHttp() ? switchToBle() : switchToWifi(); };
+    $("btnHttp").onclick = function () {
+      var ip = $("ip").value.trim();
+      if (!ip) { setStatus("Escribe la IP del aro."); return; }
+      connectHttp(ip).then(function (ok) { if (!ok) setStatus("No responde en " + ip + "."); });
+    };
     $("btnScan").onclick = startScan;
     $("btnDisc").onclick = disconnect;
 
-    // Auto-buscar al abrir
+    // Al abrir: intenta WiFi (si hay IP guardada) y si no, Bluetooth.
     window.addEventListener("load", function () {
       showVersions();
       loadWifi();
+      $("ip").value = loadIp();
       setTimeout(fillSsidFromPhone, 1200);
-      setTimeout(startScan, 400);
+      (async function () {
+        var ip = loadIp();
+        if (ip && await connectHttp(ip)) return;
+        startScan();
+      })();
     });
   })();
   </script>

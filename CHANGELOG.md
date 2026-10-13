@@ -2,6 +2,22 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.3] - 2026-10-12
+
+### Agregado
+- **Modo WiFi (LAN)**: el aro puede funcionar por WiFi sin Bluetooth. Si tiene una red
+  guardada y el modo es «wifi», arranca en WiFi + servidor HTTP; si el WiFi falla, vuelve
+  solo a Bluetooth. La app se conecta por la red local (`http://<ip>/api/…`), recuerda la
+  IP y ofrece un botón para pasar de Bluetooth a WiFi y viceversa.
+- Comandos para cambiar de modo: `M\twifi|ble` por BLE y `/api/mode` por HTTP.
+
+### Cambiado
+- La app ahora soporta dos transportes: Bluetooth (cerca) y WiFi/LAN (a distancia).
+
+### Corregido
+- Eliminado de `main.py` el código OTA/HTTP duplicado (lo hace `net.py`), liberando RAM;
+  esto arregla el arranque BLE, que fallaba por presión de memoria.
+
 ## [3.2] - 2026-10-12
 
 ### Corregido

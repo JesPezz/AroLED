@@ -6,7 +6,7 @@ import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
 REPO = "JesPezz/AroLED"
-FW_VERSION = "3.2"   # mantener en sincronia con main.py
+FW_VERSION = "3.3"   # mantener en sincronia con main.py
 # Manifiesto: firmware/version.txt de la rama main. Se sirve directo desde
 # raw.githubusercontent.com (un solo handshake TLS, el mas fiable en el ESP32);
 # jsdelivr queda de respaldo. NO se usa api.github.com (su TLS cuelga).
@@ -537,3 +537,29 @@ def run(mode):
         _done_ok()
     time.sleep_ms(500)
     machine.reset()
+
+
+def netmode():
+    # Modo persistente: "ble" (por defecto) o "wifi" (API HTTP en LAN, sin BLE).
+    try:
+        with open("netmode.txt") as f:
+            m = f.read().strip()
+        if m in ("ble", "wifi"):
+            return m
+    except Exception:
+        pass
+    return "ble"
+
+
+def run_wifi_mode():
+    # Modo WiFi persistente: conecta y NO reinicia; main.py servira la API HTTP
+    # (BLE apagado). Si no conecta, deja el error y main.py arranca en BLE.
+    _np_init()
+    w = connect_any()
+    if not w:
+        _status("wifi:error")
+        _done_err()
+        return False
+    _status("wifi:ok " + w.ifconfig()[0])
+    _done_ok()
+    return True
