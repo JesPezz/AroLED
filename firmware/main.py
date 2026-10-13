@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "2.8"
+FW_VERSION = "2.9"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -437,7 +437,9 @@ def wifi_task(do_ota=False):
 
 # ---------------- BLE ----------------
 # modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos |
-#       6 Rebote | 7 Halloween | 8 Navidad
+#       6 Rebote | 7 Halloween | 8 Navidad | 9 Sinelon | 10 Juggle |
+#       11 Confeti | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
+#       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica
 state = {"bright": 5, "speed": 50, "hue": 0, "sat": 255, "mode": 1}
 
 h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
@@ -670,6 +672,138 @@ def fx_navidad():
         _np[random.randint(0, NUM - 1)] = scaled((255, 255, 255))
     nphase += 0.2 + state["speed"] * 0.02
 
+# --- efectos populares (estilo WLED / FastLED) ---
+sinpos = 0.0
+jphase = 0.0
+cylpos = 0.0
+cyldir = 1
+mphase = 0.0
+twstate = [0] * NUM
+ltimer = 0
+polphase = 0.0
+pacph = 0.0
+
+def _fade(f):
+    for i in range(NUM):
+        r, g, b = _np[i]
+        _np[i] = (r * f // 255, g * f // 255, b * f // 255)
+
+def fx_sinelon():
+    # Punto que se mueve con suavidad (seno) dejando estela.
+    global sinpos
+    _fade(200)
+    p = int((math.sin(sinpos) * 0.5 + 0.5) * (NUM - 1))
+    _np[p] = scaled(hsv(state["hue"], state["sat"], 255))
+    sinpos += 0.10 + state["speed"] * 0.012
+
+def fx_juggle():
+    # Varios puntos de colores rebotando con estela.
+    global jphase
+    _fade(180)
+    n = 4
+    for k in range(n):
+        p = int((math.sin(jphase + k * 1.7) * 0.5 + 0.5) * (NUM - 1))
+        _np[p] = scaled(hsv(k * 256 // n, 255, 255))
+    jphase += 0.08 + state["speed"] * 0.008
+
+def fx_confetti():
+    # Puntos de color aleatorios que se apagan poco a poco.
+    _fade(225)
+    for _ in range(1 + state["speed"] // 30):
+        _np[random.randint(0, NUM - 1)] = scaled(hsv(random.randint(0, 255), 255, 255))
+
+def fx_cylon():
+    # Escáner tipo Cylon/Larson (punto rojo que barre con estela).
+    global cylpos, cyldir
+    _fade(150)
+    _np[int(cylpos)] = scaled((255, 0, 0))
+    cylpos += cyldir * (0.4 + state["speed"] * 0.03)
+    if cylpos >= NUM - 1:
+        cylpos = NUM - 1; cyldir = -1
+    if cylpos <= 0:
+        cylpos = 0; cyldir = 1
+
+def fx_meteor():
+    # Meteoro con cola que decae.
+    global mphase
+    _fade(130)
+    _np[int(mphase) % NUM] = scaled(hsv(state["hue"], state["sat"], 255))
+    mphase += 0.3 + state["speed"] * 0.05
+
+def fx_twinkle():
+    # LEDs que centellean en colores aleatorios.
+    for i in range(NUM):
+        if twstate[i] > 0:
+            twstate[i] -= 1
+            r, g, b = _np[i]
+            _np[i] = (r * 150 // 255, g * 150 // 255, b * 150 // 255)
+        else:
+            _np[i] = (0, 0, 0)
+    for _ in range(1 + state["speed"] // 25):
+        i = random.randint(0, NUM - 1)
+        if twstate[i] == 0:
+            twstate[i] = random.randint(3, 9)
+            _np[i] = scaled(hsv(random.randint(0, 255), 210, 255))
+
+def fx_pride():
+    # Arcoíris girando con brillo ondulante (Pride 2015).
+    global off
+    for i in range(NUM):
+        v = 128 + int(127 * math.sin(i * 0.5 + off * 0.1))
+        _np[i] = scaled(hsv((i * 256 // NUM + off) & 255, 255, v))
+    off = (off + 2 + state["speed"] // 15) & 255
+
+def fx_candle():
+    # Parpadeo cálido tipo vela.
+    for i in range(NUM):
+        r = random.randint(150, 255)
+        _np[i] = scaled((r, r * 45 // 100, r // 8))
+
+def fx_lightning():
+    # Fondo oscuro con destellos blancos aleatorios (tormenta).
+    global ltimer
+    _fade(70)
+    if ltimer > 0:
+        ltimer -= 1
+        _np[random.randint(0, NUM - 1)] = scaled((255, 255, 255))
+    elif random.randint(0, max(1, 50 - state["speed"] // 2)) == 0:
+        ltimer = random.randint(2, 5)
+
+def fx_police():
+    # Mitad roja / mitad azul alternando (policía).
+    global polphase
+    p = int(polphase) % 4
+    for i in range(NUM):
+        _np[i] = (0, 0, 0)
+    if p < 2:
+        for i in range(NUM // 2):
+            _np[i] = scaled((255, 0, 0))
+    else:
+        for i in range(NUM // 2, NUM):
+            _np[i] = scaled((0, 0, 255))
+    polphase += 0.15 + state["speed"] * 0.02
+
+def fx_glitter():
+    # Arcoíris de fondo con destellos blancos.
+    global off
+    for i in range(NUM):
+        _np[i] = scaled(hsv((i * 256 // NUM + off) & 255, state["sat"], 120))
+    off = (off + 3 + state["speed"] // 15) & 255
+    for _ in range(1 + state["speed"] // 30):
+        _np[random.randint(0, NUM - 1)] = scaled((255, 255, 255))
+
+def fx_pacifica():
+    # Olas azules/cian lentas.
+    global pacph
+    for i in range(NUM):
+        v = (math.sin(i * 0.5 + pacph) + math.sin(i * 0.8 - pacph * 1.3)) * 0.5
+        g = int(70 + 60 * v)
+        b = int(120 + 100 * v)
+        if g < 0: g = 0
+        if b < 0: b = 0
+        _np[i] = scaled((0, g, b))
+    pacph += 0.03 + state["speed"] * 0.004
+
 def render():
     m = state["mode"]
     if m == 0: fx_fixed()
@@ -681,6 +815,18 @@ def render():
     elif m == 6: fx_bounce()
     elif m == 7: fx_halloween()
     elif m == 8: fx_navidad()
+    elif m == 9: fx_sinelon()
+    elif m == 10: fx_juggle()
+    elif m == 11: fx_confetti()
+    elif m == 12: fx_cylon()
+    elif m == 13: fx_meteor()
+    elif m == 14: fx_twinkle()
+    elif m == 15: fx_pride()
+    elif m == 16: fx_candle()
+    elif m == 17: fx_lightning()
+    elif m == 18: fx_police()
+    elif m == 19: fx_glitter()
+    elif m == 20: fx_pacifica()
     _np.write()
 
 # ---------------- servidor HTTP (LAN) ----------------

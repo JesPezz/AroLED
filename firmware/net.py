@@ -6,7 +6,7 @@ import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
 OTA_API = "https://api.github.com/repos/JesPezz/AroLED/releases/latest"
-FW_VERSION = "2.8"   # mantener en sincronia con main.py
+FW_VERSION = "2.9"   # mantener en sincronia con main.py
 
 
 def _status(m):

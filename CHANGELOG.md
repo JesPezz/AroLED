@@ -2,6 +2,14 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [2.9] - 2026-10-12
+
+### Agregado
+- 12 efectos nuevos (modos 9-20), inspirados en WLED/FastLED: Sinelon, Juggle,
+  Confeti, Cylon, Meteoro, Centelleo, Pride, Vela, Rayo, Policía, Purpurina y
+  Pacifica. *(Solo firmware.)*
+- Botones de los 12 modos nuevos en la app.
+
 ## [2.8] - 2026-10-12
 
 ### Cambiado
