@@ -51,6 +51,7 @@
 
   <div class="card hidden" id="ctlCard">
     <div style="margin-bottom:6px"><span class="dot"></span><b id="devName">AroLED</b> <span id="via"></span></div>
+    <div style="margin:10px 0 4px"><button id="btnOn">Apagar LEDs</button></div>
 
     <div class="row"><label>Modo</label></div>
     <div class="modes" id="modes">
@@ -118,6 +119,7 @@
     var CH_CMD    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a6";
     var CH_STAT   = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a7";
     var CH_VER    = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a8";
+    var CH_ON     = "a0e1e0a0-1b1c-4a2b-8c3d-1234567890a9";
     var NAME = "AroLED";
 
     var $ = function (id) { return document.getElementById(id); };
@@ -213,6 +215,7 @@
       else if (k === "speed") writeLive(CH_SPEED, v);
       else if (k === "hue") writeLive(CH_HUE, v);
       else if (k === "sat") writeLive(CH_SAT, v);
+      else if (k === "on") writeLive(CH_ON, v);
     }
 
     // ---- rueda de color circular (Hue=angulo, Sat=radio) ----
@@ -364,6 +367,7 @@
     }
 
     function applyState(st) {
+      if (st.on != null) setOnUI(!!st.on);
       if (st.mode != null) setModeUI(st.mode);
       if (st.bright != null) { $("bright").value = st.bright; $("vBright").textContent = st.bright; }
       if (st.speed != null) { $("speed").value = st.speed; $("vSpeed").textContent = st.speed; }
@@ -394,6 +398,15 @@
     modeBtns.forEach(function (b) {
       b.onclick = function () { setMode(+b.dataset.m); };
     });
+
+    // Encendido/apagado de los LEDs.
+    var isOn = true;
+    function setOnUI(v) {
+      isOn = !!v;
+      $("btnOn").textContent = isOn ? "Apagar LEDs" : "Encender LEDs";
+    }
+    function setOn(v) { setOnUI(v); applyParam("on", isOn ? 1 : 0); }
+    $("btnOn").onclick = function () { setOn(!isOn); };
 
     var wheelWrap = $("wheelWrap");
     wheelWrap.addEventListener("pointerdown", function (e) {
@@ -450,6 +463,11 @@
         var t = "";
         for (var i = 0; i < b.length; i++) t += String.fromCharCode(b[i]);
         $("net").innerHTML = '<span class="dot"></span>estado: ' + (t || "—");
+      } catch (e) { /* ignore */ }
+      try {
+        var ro = await BLE.read({ deviceId: deviceId, service: SERVICE, characteristic: CH_ON });
+        var bo = hexToBytes((ro && ro.value) || "");
+        if (bo.length) setOnUI(!!bo[0]);
       } catch (e) { /* ignore */ }
     }
     async function readVer() {

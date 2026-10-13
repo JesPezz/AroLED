@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "3.3"
+FW_VERSION = "3.4"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -24,6 +24,7 @@ CH_SAT    = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a5")
 CH_CMD    = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a6")
 CH_STAT   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a7")
 CH_VER    = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a8")
+CH_ON     = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a9")
 
 # ---------------- config / OTA ----------------
 CFG_PATH     = "cfg.json"
@@ -159,7 +160,7 @@ def del_net(ssid):
 #       6 Rebote | 7 Halloween | 8 Navidad | 9 Sinelon | 10 Juggle |
 #       11 Confeti | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
 #       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica
-state = {"bright": 5, "speed": 50, "hue": 0, "sat": 255, "mode": 1}
+state = {"bright": 5, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
 
 h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
 pending = None
@@ -187,6 +188,8 @@ def _irq(event, data):
             state["mode"] = ble.gatts_read(h_mode)[0]
         elif attr == h_sat:
             state["sat"] = ble.gatts_read(h_sat)[0]
+        elif attr == h_on:
+            state["on"] = ble.gatts_read(h_on)[0]
         elif attr == h_cmd:
             cmd_buf += ble.gatts_read(h_cmd)
             k = cmd_buf.find(b"\x00")
@@ -195,11 +198,11 @@ def _irq(event, data):
                 cmd_buf = b""
 
 def start_ble():
-    global ble, h_bright, h_speed, h_hue, h_mode, h_sat, h_cmd, h_stat, h_ver
+    global ble, h_bright, h_speed, h_hue, h_mode, h_sat, h_cmd, h_stat, h_ver, h_on
     ble = bluetooth.BLE()
     ble.active(True)
     ble.config(gap_name="AroLED")
-    ((h_bright, h_speed, h_hue, h_mode, h_sat, h_cmd, h_stat, h_ver),) = ble.gatts_register_services((
+    ((h_bright, h_speed, h_hue, h_mode, h_sat, h_cmd, h_stat, h_ver, h_on),) = ble.gatts_register_services((
         (SERVICE, (
             (CH_BRIGHT, bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
             (CH_SPEED,  bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
@@ -209,6 +212,7 @@ def start_ble():
             (CH_CMD,    bluetooth.FLAG_WRITE),
             (CH_STAT,   bluetooth.FLAG_READ),
             (CH_VER,    bluetooth.FLAG_READ),
+            (CH_ON,     bluetooth.FLAG_READ | bluetooth.FLAG_WRITE),
         )),
     ))
     ble.gatts_write(h_bright, bytes([state["bright"]]))
@@ -219,6 +223,7 @@ def start_ble():
     ble.gatts_write(h_cmd,    bytes(20))
     ble.gatts_write(h_stat,   netmsg.encode())
     ble.gatts_write(h_ver,    FW_VERSION.encode())
+    ble.gatts_write(h_on,     bytes([state["on"]]))
     ble.irq(_irq)
     advertise()
 
@@ -531,6 +536,11 @@ def fx_pacifica():
     pacph += 0.03 + state["speed"] * 0.004
 
 def render():
+    if not state["on"]:
+        for i in range(NUM):
+            _np[i] = (0, 0, 0)
+        _np.write()
+        return
     m = state["mode"]
     if m == 0: fx_fixed()
     elif m == 1: fx_rainbow()
@@ -612,10 +622,10 @@ def _state_json():
     except Exception:
         pass
     nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
-    return ('{"ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,'
+    return ('{"ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,"on":%d,'
             '"net":"%s","ip":"%s","netmode":"%s","nets":[%s]}'
             % (FW_VERSION, state["bright"], state["speed"], state["hue"],
-               state["sat"], state["mode"], _jesc(netmsg), ip, netmode(), nets))
+               state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, netmode(), nets))
 
 def _apply_param(k, v):
     if k == "bright":
@@ -628,6 +638,8 @@ def _apply_param(k, v):
         state["sat"] = _clamp(int(v), 0, 255)
     elif k == "mode":
         state["mode"] = _clamp(int(v), 0, 20)
+    elif k == "on":
+        state["on"] = _clamp(int(v), 0, 1)
 
 def _push_ble():
     try:
@@ -636,6 +648,7 @@ def _push_ble():
         ble.gatts_write(h_hue,    bytes([state["hue"]]))
         ble.gatts_write(h_mode,   bytes([state["mode"]]))
         ble.gatts_write(h_sat,    bytes([state["sat"]]))
+        ble.gatts_write(h_on,     bytes([state["on"]]))
     except Exception:
         pass
 
@@ -669,7 +682,7 @@ def http_handle(path, q):
     if path == "/api/state":
         return _state_json()
     if path == "/api/set":
-        for k in ("bright", "speed", "hue", "sat", "mode"):
+        for k in ("bright", "speed", "hue", "sat", "mode", "on"):
             if k in q:
                 try:
                     _apply_param(k, q[k])

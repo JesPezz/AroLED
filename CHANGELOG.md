@@ -2,6 +2,13 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.4] - 2026-10-12
+
+### Agregado
+- **Botón de encendido/apagado de los LEDs** en la app. Nueva característica BLE
+  (`…890a9`) y parámetro `on` en la API HTTP (`/api/set?on=0|1`); apagar deja la
+  tira en negro sin perder el modo ni los colores.
+
 ## [3.3] - 2026-10-12
 
 ### Agregado
