@@ -6,7 +6,7 @@ import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
 REPO = "JesPezz/AroLED"
-FW_VERSION = "3.5"   # mantener en sincronia con main.py
+FW_VERSION = "3.6"   # mantener en sincronia con main.py
 # Manifiesto: firmware/version.txt de la rama main. Se sirve directo desde
 # raw.githubusercontent.com (un solo handshake TLS, el mas fiable en el ESP32);
 # jsdelivr queda de respaldo. NO se usa api.github.com (su TLS cuelga).
@@ -135,8 +135,19 @@ def connect_any():
             time.sleep_ms(500)
         if w.isconnected():
             _save_last(c, n.get("ssid", ""))
+            _static(c, w)
             return w
     return None
+
+
+def _static(c, w):
+    # IP fija opcional (cfg["static"]); vacio = DHCP.
+    ip = c.get("static", "")
+    if ip:
+        try:
+            w.ifconfig((ip, "255.255.255.0", "192.168.1.1", "8.8.8.8"))
+        except Exception:
+            pass
 
 
 # ---------------- HTTP/HTTPS ----------------

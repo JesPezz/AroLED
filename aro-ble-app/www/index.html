@@ -47,6 +47,7 @@
     <div class="row" style="margin-top:18px"><label>Conexión por WiFi (LAN)</label></div>
     <input class="inp" id="ip" placeholder="IP del aro (p. ej. 192.168.1.106)" inputmode="decimal" autocomplete="off" />
     <div style="margin-top:8px"><button id="btnHttp">Conectar por WiFi</button></div>
+    <div style="margin-top:8px"><button id="btnFind">Buscar el aro en la red</button></div>
   </div>
 
   <div class="card hidden" id="ctlCard">
@@ -97,6 +98,8 @@
     <div class="row" style="margin-top:20px"><label>WiFi del ESP32</label></div>
     <input class="inp" id="ssid" placeholder="Nombre de la red (SSID)" autocomplete="off" autocapitalize="none" />
     <input class="inp" id="pass" type="password" placeholder="Contraseña WiFi" autocomplete="off" style="margin-top:8px" />
+    <input id="staticip" placeholder="IP fija del aro (opcional, p. ej. 192.168.1.150)" inputmode="decimal" autocomplete="off"
+      style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit;margin-top:8px" />
     <div style="margin-top:10px"><button id="btnWifi">Guardar y conectar WiFi</button></div>
     <div style="margin-top:8px"><button id="btnUpd">Buscar actualización del ESP32</button></div>
     <div style="margin-top:8px"><button id="btnReboot">Reiniciar ESP32</button></div>
@@ -368,6 +371,36 @@
       return true;
     }
 
+    // Sondea una IP concreta buscando el aro (campo "dev").
+    async function probeState(base, ms) {
+      try {
+        var ctrl = new AbortController();
+        var t = setTimeout(function () { ctrl.abort(); }, ms);
+        var r = await fetch(base + "/api/state", { signal: ctrl.signal });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        return await r.json();
+      } catch (e) { return null; }
+    }
+    // Escanea la LAN (.1-.254) en lotes buscando el aro por su campo "dev".
+    async function scanLan() {
+      setStatus("Buscando el aro en la red…");
+      var base = (loadIp() || "192.168.1.1").split(".").slice(0, 3).join(".") + ".";
+      var found = null;
+      for (var start = 1; start <= 254 && !found; start += 64) {
+        var batch = [];
+        for (var h = start; h < start + 64 && h <= 254; h++) {
+          batch.push((function (host) {
+            return probeState("http://" + base + host, 800).then(function (st) {
+              if (!found && st && st.dev === "AroLED") found = base + host;
+            });
+          })(h));
+        }
+        await Promise.all(batch);
+      }
+      return found;
+    }
+
     function applyState(st) {
       if (st.on != null) setOnUI(!!st.on);
       if (st.mode != null) setModeUI(st.mode);
@@ -521,6 +554,8 @@
         await sleep(3000);
         if (ip && await connectHttp(ip)) { $("ip").value = ip; return; }
       }
+      var f = await scanLan();
+      if (f && await connectHttp(f)) { $("ip").value = f; return; }
       setStatus("El aro está en modo WiFi. Escribe su IP y pulsa «Conectar por WiFi».");
       deviceId = null;
       $("ctlCard").classList.add("hidden");
@@ -540,12 +575,13 @@
 
     $("btnWifi").onclick = async function () {
       var s = $("ssid").value, p = $("pass").value;
+      var fix = ($("staticip") && $("staticip").value.trim()) || "";
       saveWifi(s, p);
       if (isHttp()) {
         $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
-        await httpReq("/api/wifi?add=" + encodeURIComponent(s) + "&pass=" + encodeURIComponent(p), 4000);
+        await httpReq("/api/wifi?add=" + encodeURIComponent(s) + "&pass=" + encodeURIComponent(p) + (fix ? "&static=" + encodeURIComponent(fix) : ""), 4000);
       } else {
-        sendCmd("W\t" + s + "\t" + p);
+        sendCmd("W\t" + s + "\t" + p + (fix ? "\t" + fix : ""));
         $("net").innerHTML = '<span class="dot"></span>estado: wifi:enviando…';
         waitReconnect();
       }
@@ -568,6 +604,12 @@
       var ip = $("ip").value.trim();
       if (!ip) { setStatus("Escribe la IP del aro."); return; }
       connectHttp(ip).then(function (ok) { if (!ok) setStatus("No responde en " + ip + "."); });
+    };
+    $("btnFind").onclick = async function () {
+      var ip = await scanLan();
+      if (!ip) { setStatus("No se encontró el aro en la red. ¿Está en modo WiFi?"); return; }
+      $("ip").value = ip;
+      if (!await connectHttp(ip)) setStatus("Encontrado en " + ip + " pero no responde.");
     };
     $("btnScan").onclick = startScan;
     $("btnDisc").onclick = disconnect;

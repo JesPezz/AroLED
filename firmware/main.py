@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "3.5"
+FW_VERSION = "3.6"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -247,6 +247,10 @@ def handle_cmd(c):
         ssid = parts[1] if len(parts) > 1 else ""
         pw = parts[2] if len(parts) > 2 else ""
         add_net(ssid, pw)
+        if len(parts) > 3 and parts[3]:
+            c2 = load_cfg()
+            c2["static"] = parts[3]
+            save_cfg(c2)
         _goto_net("wifi")
     elif c == "C":
         _goto_net("wifi")
@@ -651,7 +655,7 @@ def _state_json():
     except Exception:
         pass
     nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
-    return ('{"ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,"on":%d,'
+    return ('{"dev":"AroLED","ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,"on":%d,'
             '"net":"%s","ip":"%s","netmode":"%s","nets":[%s]}'
             % (FW_VERSION, state["bright"], state["speed"], state["hue"],
                state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, netmode(), nets))
@@ -725,6 +729,13 @@ def http_handle(path, q):
             pending = "W\t" + q["add"] + "\t" + q.get("pass", "")
         elif "del" in q:
             del_net(q["del"])
+        if "static" in q:
+            try:
+                c = load_cfg()
+                c["static"] = q["static"]
+                save_cfg(c)
+            except Exception:
+                pass
         return _state_json()
     if path == "/api/ota":
         pending = "U"

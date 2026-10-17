@@ -2,6 +2,15 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.6] - 2026-10-12
+
+### Agregado
+- **Encontrar el aro en la red**: la app escanea la LAN (192.168.1.1-254) y
+  reconoce el aro por el campo `dev` de `/api/state`; nuevo botón «Buscar el aro
+  en la red». Ya no hace falta saber su IP si cambió por DHCP.
+- **IP fija opcional**: campo para fijar una IP al aro (se guarda en `cfg.json`
+  y se aplica al conectar); alternativa a reservar la MAC en el router.
+
 ## [3.5] - 2026-10-12
 
 ### Agregado
