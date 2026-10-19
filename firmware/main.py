@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "3.6"
+FW_VERSION = "3.7"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -550,6 +550,17 @@ def fx_spectrum():
         _np[i] = px
     specph += 1 + state["speed"] // 8
 
+nightph = 0.0
+
+def fx_night():
+    # Lampara de noche: ambar calido y tenue, con un latido lento y suave.
+    global nightph
+    v = 0.8 + 0.2 * (math.sin(nightph) * 0.5 + 0.5)
+    px = scaled((int(255 * v), int(110 * v), int(25 * v)))
+    for i in range(NUM):
+        _np[i] = px
+    nightph += 0.015 + state["speed"] * 0.001
+
 _RND_MODES = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 rnd_cur = 1
 rnd_cnt = 0
@@ -577,6 +588,7 @@ def _run(m):
     elif m == 19: fx_glitter()
     elif m == 20: fx_pacifica()
     elif m == 21: fx_spectrum()
+    elif m == 23: fx_night()
 
 def fx_random():
     # Va saltando de efecto en efecto cada cierto tiempo.
@@ -647,6 +659,73 @@ def _parse_qs(q):
 def _clamp(v, lo, hi):
     return lo if v < lo else (hi if v > hi else v)
 
+# ---------------- luz nocturna (horario) ----------------
+night_str = ""
+night_active = False
+night_saved = None
+tz = -6
+
+def _mins(s):
+    try:
+        p = s.split(":")
+        return int(p[0]) * 60 + int(p[1])
+    except Exception:
+        return -1
+
+def _local_min():
+    # Minutos del dia en hora local (tz en horas); -1 si la hora aun no es valida.
+    t = time.localtime(time.time() + tz * 3600)
+    if t[0] < 2020:
+        return -1
+    return t[3] * 60 + t[4]
+
+def night_load():
+    global night_str, tz
+    c = load_cfg()
+    tz = int(c.get("tz", -6))
+    n = c.get("night") or {}
+    night_str = "%s|%s|%s|%s" % (n.get("on", ""), n.get("off", ""), n.get("bright", 12), n.get("enabled", 0))
+
+def night_set(on, off, bright, enabled, zone):
+    global night_str, tz
+    c = load_cfg()
+    c["night"] = {"on": on, "off": off, "bright": _clamp(int(bright), 0, 255), "enabled": int(enabled)}
+    if zone is not None:
+        c["tz"] = int(zone)
+        tz = int(zone)
+    save_cfg(c)
+    night_str = "%s|%s|%d|%d" % (on, off, c["night"]["bright"], c["night"]["enabled"])
+
+def night_restore():
+    global night_active, night_saved
+    if night_saved:
+        state["mode"], state["bright"], state["on"] = night_saved
+        _push_ble()
+    night_active = False
+
+def night_check():
+    global night_active, night_saved
+    n = load_cfg().get("night") or {}
+    if not n.get("enabled"):
+        if night_active:
+            night_restore()
+        return
+    on = _mins(n.get("on", ""))
+    off = _mins(n.get("off", ""))
+    mn = _local_min()
+    if on < 0 or off < 0 or mn < 0:
+        return
+    inside = (on <= mn < off) if on <= off else (mn >= on or mn < off)
+    if inside and not night_active:
+        night_saved = (state["mode"], state["bright"], state["on"])
+        state["mode"] = 23
+        state["bright"] = _clamp(int(n.get("bright", 12)), 0, 255)
+        state["on"] = 1
+        _push_ble()
+        night_active = True
+    elif not inside and night_active:
+        night_restore()
+
 def _state_json():
     ip = ""
     try:
@@ -656,9 +735,10 @@ def _state_json():
         pass
     nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
     return ('{"dev":"AroLED","ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,"on":%d,'
-            '"net":"%s","ip":"%s","netmode":"%s","nets":[%s]}'
+            '"net":"%s","ip":"%s","netmode":"%s","night":"%s","nets":[%s]}'
             % (FW_VERSION, state["bright"], state["speed"], state["hue"],
-               state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, netmode(), nets))
+               state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, netmode(),
+               night_str, nets))
 
 def _apply_param(k, v):
     if k == "bright":
@@ -670,7 +750,7 @@ def _apply_param(k, v):
     elif k == "sat":
         state["sat"] = _clamp(int(v), 0, 255)
     elif k == "mode":
-        state["mode"] = _clamp(int(v), 0, 22)
+        state["mode"] = _clamp(int(v), 0, 23)
     elif k == "on":
         state["on"] = _clamp(int(v), 0, 1)
 
@@ -747,6 +827,15 @@ def http_handle(path, q):
         m = q.get("set", "ble")
         pending = "M\t" + m
         return '{"ok":true,"mode":"' + m + '"}'
+    if path == "/api/night":
+        if "on" in q or "off" in q or "enabled" in q or "tz" in q:
+            c = load_cfg().get("night") or {}
+            on = q.get("on", c.get("on", ""))
+            off = q.get("off", c.get("off", ""))
+            br = q.get("bright", c.get("bright", 12))
+            en = q.get("enabled", c.get("enabled", 0))
+            night_set(on, off, br, en, q.get("tz", None))
+        return _state_json()
     return '{"error":"ruta desconocida"}'
 
 def http_poll():
@@ -782,6 +871,7 @@ def loop():
     boot_at = time.ticks_ms()
     committed = False
     last = time.ticks_ms()
+    night_at = time.ticks_ms()
     while True:
         http_poll()
         if pending is not None:
@@ -807,6 +897,12 @@ def loop():
         if time.ticks_diff(now, last) >= interval:
             last = now
             render()
+        if time.ticks_diff(now, night_at) >= 10000:
+            night_at = now
+            try:
+                night_check()
+            except Exception:
+                pass
         time.sleep_ms(2)
 
 def main():
@@ -822,11 +918,17 @@ def main():
     # Modo WiFi persistente: boot.py ya conecto la red; aqui solo se sirve la
     # API HTTP por LAN (BLE apagado: no pueden convivir). Si no hay WiFi, se
     # retrocede a BLE para no quedarse sin control.
+    night_load()
     if netmode() == "wifi" and _wifi_up():
         try:
             netmsg = "wifi:ok " + wlan.ifconfig()[0]
         except Exception:
             netmsg = "wifi:ok"
+        try:
+            import ntptime
+            ntptime.settime()
+        except Exception:
+            pass
         http_ensure()
         render()
         print("AroLED listo v" + FW_VERSION + " " + netmsg + " (HTTP"

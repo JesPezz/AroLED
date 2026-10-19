@@ -2,6 +2,20 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.7] - 2026-10-12
+
+### Agregado
+- **Modo «Nocturno» (23)**: luz cálida y tenue (ámbar con un latido lento y suave),
+  pensada como lámpara de noche.
+- **Horario de luz nocturna**: el aro enciende el modo Nocturno a una hora y lo
+  apaga a otra (admite horarios que cruzan la medianoche). Se configura desde la
+  app (`/api/night?on=&off=&bright=&enabled=`); necesita el aro en modo WiFi para
+  sincronizar la hora por NTP.
+- Botón «Nocturno» y controles de horario en la app.
+
+### Cambiado
+- La app oculta la rueda de color salvo en el modo «Color fijo» (0).
+
 ## [3.6] - 2026-10-12
 
 ### Agregado

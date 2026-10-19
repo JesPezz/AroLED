@@ -79,12 +79,15 @@
       <button data-m="20">Pacifica</button>
       <button data-m="21">Espectro</button>
       <button data-m="22">Aleatorio</button>
+      <button data-m="23">Nocturno</button>
     </div>
 
+    <div id="colorBlock">
     <div class="row"><label>Color</label></div>
     <div class="wheelwrap" id="wheelWrap">
       <canvas id="wheel" width="240" height="240"></canvas>
       <div class="marker" id="marker"></div>
+    </div>
     </div>
 
     <div class="row"><label>Brillo</label><b id="vBright">40</b></div>
@@ -108,6 +111,17 @@
 
     <div class="row" style="margin-top:20px"><label>Conexión del aro</label></div>
     <div style="margin-top:4px"><button id="btnMode">Pasar a WiFi (LAN)</button></div>
+
+    <div class="row" style="margin-top:20px"><label>Luz nocturna (horario)</label></div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <label style="flex:1;font-size:13px;color:var(--sub)">Encender<br><input id="nightOn" type="time" value="21:00" style="width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit"></label>
+      <label style="flex:1;font-size:13px;color:var(--sub)">Apagar<br><input id="nightOff" type="time" value="07:00" style="width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit"></label>
+    </div>
+    <div class="row"><label>Brillo nocturno</label><b id="vNight">12</b></div>
+    <input type="range" id="nightBright" min="1" max="60" value="12" />
+    <div style="margin-top:8px"><button id="btnNight">Guardar horario</button></div>
+    <div style="margin-top:8px"><button id="btnNightOff">Desactivar luz nocturna</button></div>
+    <div class="status" id="nightInfo">—</div>
 
     <div style="margin-top:16px"><button id="btnDisc">Desconectar</button></div>
   </div>
@@ -408,6 +422,7 @@
       if (st.speed != null) { $("speed").value = st.speed; $("vSpeed").textContent = st.speed; }
       if (st.hue != null) curHue = st.hue;
       if (st.sat != null) { curSat = st.sat; placeMarker(); }
+      if (st.night != null) showNight(st.night);
     }
 
     async function disconnect() {
@@ -428,6 +443,7 @@
     function setModeUI(m) {
       modeBtns.forEach(function (b) { b.classList.toggle("on", +b.dataset.m === m); });
       $("speedBlock").classList.toggle("hidden", m === 0);
+      $("colorBlock").classList.toggle("hidden", m !== 0);
     }
     function setMode(m) { setModeUI(m); applyParam("mode", m); }
     modeBtns.forEach(function (b) {
@@ -613,6 +629,26 @@
     };
     $("btnScan").onclick = startScan;
     $("btnDisc").onclick = disconnect;
+
+    // ---- luz nocturna (horario) ----
+    function showNight(s) {
+      var p = (s || "").split("|");
+      if (p.length < 4) { $("nightInfo").textContent = "—"; return; }
+      if (p[0]) $("nightOn").value = p[0];
+      if (p[1]) $("nightOff").value = p[1];
+      if (p[2]) { $("nightBright").value = p[2]; $("vNight").textContent = p[2]; }
+      $("nightInfo").textContent = (p[3] === "1") ? ("Activa " + p[0] + "–" + p[1]) : "Desactivada";
+    }
+    async function saveNight(enabled) {
+      var on = $("nightOn").value || "21:00", off = $("nightOff").value || "07:00", b = $("nightBright").value || 12;
+      if (!isHttp()) { setStatus("El horario necesita el aro en modo WiFi (LAN)."); return; }
+      var st = await httpReq("/api/night?on=" + encodeURIComponent(on) + "&off=" + encodeURIComponent(off) + "&bright=" + b + "&enabled=" + enabled, 3000);
+      if (st) showNight(st.night);
+      setStatus(enabled ? "Horario guardado." : "Luz nocturna desactivada.");
+    }
+    $("nightBright").oninput = function () { $("vNight").textContent = $("nightBright").value; };
+    $("btnNight").onclick = function () { saveNight(1); };
+    $("btnNightOff").onclick = function () { saveNight(0); };
 
     // Al abrir: intenta WiFi (si hay IP guardada) y si no, Bluetooth.
     window.addEventListener("load", function () {
