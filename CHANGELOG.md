@@ -2,6 +2,13 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.8] - 2026-10-19
+
+### Corregido
+- El aro **resincroniza la hora por NTP cada 6 h** mientras está en modo WiFi
+  (antes solo al arrancar), así el horario nocturno no se desvía si se cae
+  internet y vuelve. *(Solo firmware.)*
+
 ## [3.7] - 2026-10-12
 
 ### Agregado

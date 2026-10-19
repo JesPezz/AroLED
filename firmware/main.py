@@ -13,7 +13,7 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "3.7"
+FW_VERSION = "3.8"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -664,6 +664,7 @@ night_str = ""
 night_active = False
 night_saved = None
 tz = -6
+ntp_at = 0
 
 def _mins(s):
     try:
@@ -866,7 +867,7 @@ def http_poll():
 
 # ---------------- bucle principal ----------------
 def loop():
-    global pending
+    global pending, ntp_at
     stat_sent = None
     boot_at = time.ticks_ms()
     committed = False
@@ -903,10 +904,18 @@ def loop():
                 night_check()
             except Exception:
                 pass
+            try:
+                # Resincroniza la hora cada 6 h (el RTC se desvia sin NTP).
+                if _wifi_up() and time.time() - ntp_at >= 21600:
+                    import ntptime
+                    ntptime.settime()
+                    ntp_at = time.time()
+            except Exception:
+                pass
         time.sleep_ms(2)
 
 def main():
-    global netmsg
+    global netmsg, ntp_at
     # Resultado del ultimo arranque de red (wifi/ota), si lo hubo: se publica
     # por BLE y se borra.
     try:
@@ -927,6 +936,7 @@ def main():
         try:
             import ntptime
             ntptime.settime()
+            ntp_at = time.time()
         except Exception:
             pass
         http_ensure()
