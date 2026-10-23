@@ -11,12 +11,33 @@ _IRQ_WRITE = const(3)
 PIN = 23
 NUM = 16
 
-_np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
+_np = None
+
+
+def _led_init():
+    # La tira se crea en el primer render (ya con el WiFi arriba, si toca) y se
+    # recrea sola si una escritura falla. Crearla al importar dejaba el anillo
+    # clavado en el color del arranque de red.
+    global _np
+    try:
+        _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
+        return True
+    except Exception:
+        _np = None
+        return False
+
+
+def _write():
+    global _np
+    try:
+        _np.write()
+    except Exception:
+        _np = None
 
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "4.6"
+FW_VERSION = "4.7"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -652,15 +673,17 @@ def fx_random():
     _run(rnd_cur)
 
 def render():
+    if _np is None and not _led_init():
+        return
     if not state["on"]:
         for i in range(NUM):
             _np[i] = (0, 0, 0)
-        _np.write()
+        _write()
         return
     m = state["mode"]
     if m == 22: fx_random()
     else: _run(m)
-    _np.write()
+    _write()
 
 # ---------------- servidor HTTP (LAN) ----------------
 # API minima (GET): /api/state, /api/set?bright=&speed=&hue=&sat=&mode=,

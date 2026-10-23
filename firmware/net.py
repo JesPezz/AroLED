@@ -6,7 +6,7 @@ import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
 REPO = "JesPezz/AroLED"
-FW_VERSION = "4.6"   # mantener en sincronia con main.py
+FW_VERSION = "4.7"   # mantener en sincronia con main.py
 # Manifiesto: firmware/version.txt de la rama main. Se sirve directo desde
 # raw.githubusercontent.com (un solo handshake TLS, el mas fiable en el ESP32);
 # jsdelivr queda de respaldo. NO se usa api.github.com (su TLS cuelga).
@@ -72,7 +72,8 @@ def _blink(rgb, times=3):
         _fill((0, 0, 0))
         time.sleep_ms(120)
     _fill(rgb)
-    time.sleep_ms(600)
+    time.sleep_ms(400)
+    _fill((0, 0, 0))
 
 
 def _done_ok():
