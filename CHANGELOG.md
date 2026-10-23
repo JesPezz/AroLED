@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.3] - 2026-10-23
+### Corregido
+- El aro se quedaba mudo en modo WiFi: conectaba la red (dejaba el anillo en verde fijo) pero `main.py` no llegaba a arrancar, así que no había ni API HTTP ni Bluetooth. Ahora `boot.py` libera el módulo `net` y hace `gc.collect()` antes de que cargue `main.py`, dejando heap suficiente con el driver WiFi ya levantado.
+
 ## [4.2] - 2026-10-23
 ### Agregado
 - Modo «Reloj» (24): el anillo muestra la hora como reloj de agujas (hora en rojo, minuto en verde, segundo en azul), con antialiasing entre LEDs. Portado del proyecto neoclock.

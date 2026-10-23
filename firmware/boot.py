@@ -39,3 +39,12 @@ else:
             net.run_wifi_mode()
     except Exception:
         pass
+    # Suelta net antes de que cargue main.py: con el WiFi ya arriba (~20 KB)
+    # el heap no da para importar main.py y el aro se queda mudo (LED verde).
+    try:
+        import sys, gc
+        sys.modules.pop("net", None)
+        del net
+        gc.collect()
+    except Exception:
+        pass
