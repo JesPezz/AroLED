@@ -16,7 +16,7 @@ _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "3.9"
+FW_VERSION = "4.0"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -967,6 +967,12 @@ def main():
         loop()
         return
     # Modo BLE: el WiFi se hace en un arranque aparte (bandera mode.txt + reset).
+    # Si venia en modo WiFi y la red no esta, el BLE NO arranca fiable en este
+    # mismo arranque (el driver WiFi ya se inicializo): se pasa a BLE y se
+    # reinicia para levantar el BLE limpio.
+    if netmode() == "wifi":
+        save_netmode("ble")
+        machine.reset()
     start_ble()
     render()
     print("AroLED listo v" + FW_VERSION + " " + netmsg)

@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.0] - 2026-10-19
+### Corregido
+- Si el aro estaba en modo WiFi y la red no está disponible, ahora cambia a modo Bluetooth y se reinicia para levantar el BLE limpio. Antes intentaba iniciar el Bluetooth en el mismo arranque en que ya se había inicializado el WiFi, lo que fallaba: el aro quedaba sin Bluetooth y sin WiFi (solo la secuencia azul y los destellos rojos).
+
 ## [3.9] - 2026-10-19
 
 ### Agregado
