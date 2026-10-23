@@ -2,6 +2,12 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.5] - 2026-10-23
+### Corregido
+- La app no encontraba el aro en modo WiFi: al abrir sin una IP válida se iba directo a Bluetooth (donde el aro no existe en ese modo) y se quedaba sin conexión. Ahora, si la IP guardada no responde, escanea la red local antes de caer a Bluetooth.
+- Autorreconexión: si el aro deja de responder (reinicio o cambio de IP por DHCP), la app lo vuelve a buscar en la red en segundo plano, como mucho cada 15 s.
+- El punto de estado, que antes era siempre verde, ahora refleja la conexión real: verde conectado, rojo sin respuesta.
+
 ## [4.4] - 2026-10-23
 ### Corregido
 - El segundero del modo «Reloj» ya no parpadea: avanzaba a saltos porque mezclaba la segunda entera del RTC con la fase de `ticks_ms()` (origen distinto), de modo que en cada vuelta de `ticks_ms` la posición retrocedía y al cambiar la segunda saltaba adelante. Ahora la fracción se ancla al segundo real y la posición es monótona.

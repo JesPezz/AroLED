@@ -16,7 +16,7 @@ _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "4.4"
+FW_VERSION = "4.5"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
