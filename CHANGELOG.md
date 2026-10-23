@@ -2,6 +2,11 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.4] - 2026-10-23
+### Corregido
+- El segundero del modo «Reloj» ya no parpadea: avanzaba a saltos porque mezclaba la segunda entera del RTC con la fase de `ticks_ms()` (origen distinto), de modo que en cada vuelta de `ticks_ms` la posición retrocedía y al cambiar la segunda saltaba adelante. Ahora la fracción se ancla al segundo real y la posición es monótona.
+- En ese modo el refresco sube a 25 fps (~40 ms), así que la aguja barre de forma continua en vez de dar pasos.
+
 ## [4.3] - 2026-10-23
 ### Corregido
 - El aro se quedaba mudo en modo WiFi: conectaba la red (dejaba el anillo en verde fijo) pero `main.py` no llegaba a arrancar, así que no había ni API HTTP ni Bluetooth. Ahora `boot.py` libera el módulo `net` y hace `gc.collect()` antes de que cargue `main.py`, dejando heap suficiente con el driver WiFi ya levantado.
