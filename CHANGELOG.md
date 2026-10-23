@@ -2,6 +2,11 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.8] - 2026-10-23
+### Corregido
+- El anillo se quedaba congelado en el ultimo fotograma (p. ej. un arcoiris fijo) aunque los comandos HTTP respondieran: el firmware creaba **dos** tiras NeoPixel sobre el mismo pin (una en `net.py` al arrancar la red y otra en `main.py`), y la segunda escribia sin que los LEDs recibieran nada. Ahora hay una sola instancia compartida en `led.py`, que usan los dos modulos.
+- `led.py` se actualiza por OTA junto al resto del firmware.
+
 ## [4.6] - 2026-10-23
 ### Corregido
 - El punto de estado se quedaba rojo con el aro conectado por Bluetooth: solo se ponía verde si una lectura GATT salía bien. Ahora se pone verde en cuanto el enlace BLE está establecido.

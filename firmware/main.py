@@ -11,16 +11,18 @@ _IRQ_WRITE = const(3)
 PIN = 23
 NUM = 16
 
+import led as _led
+
 _np = None
 
 
 def _led_init():
-    # La tira se crea en el primer render (ya con el WiFi arriba, si toca) y se
-    # recrea sola si una escritura falla. Crearla al importar dejaba el anillo
-    # clavado en el color del arranque de red.
+    # Una sola tira para todo el firmware (compartida con net.py, que la crea en
+    # el arranque de red). Dos instancias sobre el mismo pin dejan el anillo
+    # congelado: la segunda escribe sin que los LEDs reciban nada.
     global _np
     try:
-        _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
+        _np = _led.get()
         return True
     except Exception:
         _np = None
@@ -37,7 +39,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "4.7"
+FW_VERSION = "4.8"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")

@@ -6,7 +6,7 @@ import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
 REPO = "JesPezz/AroLED"
-FW_VERSION = "4.7"   # mantener en sincronia con main.py
+FW_VERSION = "4.8"   # mantener en sincronia con main.py
 # Manifiesto: firmware/version.txt de la rama main. Se sirve directo desde
 # raw.githubusercontent.com (un solo handshake TLS, el mas fiable en el ESP32);
 # jsdelivr queda de respaldo. NO se usa api.github.com (su TLS cuelga).
@@ -34,8 +34,8 @@ def _np_init():
     global _np
     if _np is None:
         try:
-            import neopixel
-            _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
+            import led
+            _np = led.get()
         except Exception:
             _np = None
 
@@ -437,7 +437,7 @@ def _ver_key(v):
     return nums[0] * 100 + nums[1]
 
 
-OTA_FILES = ("main.py", "net.py", "boot.py")
+OTA_FILES = ("main.py", "net.py", "boot.py", "led.py")
 
 
 def _cdn_url(tag, name):
