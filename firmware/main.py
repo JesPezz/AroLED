@@ -11,7 +11,12 @@ _IRQ_WRITE = const(3)
 PIN = 23
 NUM = 16
 
-import led as _led
+try:
+    import led as _led
+except ImportError:
+    # Si led.py no esta (p. ej. OTA viejo que no lo traia), no se puede dejar el
+    # arranque sin levantar: se cae a la tira propia en vez de morir al importar.
+    _led = None
 
 _np = None
 
@@ -22,7 +27,10 @@ def _led_init():
     # congelado: la segunda escribe sin que los LEDs reciban nada.
     global _np
     try:
-        _np = _led.get()
+        if _led is not None:
+            _np = _led.get()
+        else:
+            _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
         return True
     except Exception:
         _np = None
@@ -39,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "4.8"
+FW_VERSION = "4.9"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")

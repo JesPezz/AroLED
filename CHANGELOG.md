@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.9] - 2026-10-23
+### Corregido
+- Un `led.py` ausente dejaba el aro sin arrancar (sin WiFi util ni BLE): el OTA anterior no sabia actualizar ese fichero nuevo y `main.py` moria al importarlo. Ahora la importacion es tolerante y, si falta, se usa la tira propia en vez de no arrancar.
+
 ## [4.8] - 2026-10-23
 ### Corregido
 - El anillo se quedaba congelado en el ultimo fotograma (p. ej. un arcoiris fijo) aunque los comandos HTTP respondieran: el firmware creaba **dos** tiras NeoPixel sobre el mismo pin (una en `net.py` al arrancar la red y otra en `main.py`), y la segunda escribia sin que los LEDs recibieran nada. Ahora hay una sola instancia compartida en `led.py`, que usan los dos modulos.
