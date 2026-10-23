@@ -16,7 +16,7 @@ _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "4.0"
+FW_VERSION = "4.1"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -732,16 +732,18 @@ def night_check():
 
 def _state_json():
     ip = ""
+    ssid = ""
     try:
         if wlan is not None and wlan.isconnected():
             ip = wlan.ifconfig()[0]
+            ssid = wlan.config("essid")
     except Exception:
         pass
     nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
     return ('{"dev":"AroLED","ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,"on":%d,'
-            '"net":"%s","ip":"%s","netmode":"%s","night":"%s","nets":[%s]}'
+            '"net":"%s","ip":"%s","ssid":"%s","netmode":"%s","night":"%s","nets":[%s]}'
             % (FW_VERSION, state["bright"], state["speed"], state["hue"],
-               state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, netmode(),
+               state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, _jesc(ssid), netmode(),
                night_str, nets))
 
 def _apply_param(k, v):

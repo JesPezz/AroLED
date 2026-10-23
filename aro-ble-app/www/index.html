@@ -502,6 +502,7 @@
         var st = await httpReq("/api/state", 2000);
         if (st) {
           $("net").innerHTML = '<span class="dot"></span>estado: ' + (st.net || "—") +
+            (st.ssid ? (" · " + st.ssid) : "") +
             (st.netmode ? (" · " + st.netmode) : "");
           showVersions(st.ver);
         }
