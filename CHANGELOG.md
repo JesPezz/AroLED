@@ -2,6 +2,12 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [3.9] - 2026-10-19
+
+### Agregado
+- **Pulsador físico** en GPIO27 (se conecta a GND, usa el pull-up interno): cada
+  pulsación pasa al siguiente efecto (0..22). No necesita la app ni el móvil.
+
 ## [3.8] - 2026-10-19
 
 ### Corregido

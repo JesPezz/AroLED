@@ -13,7 +13,10 @@ NUM = 16
 
 _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 
-FW_VERSION = "3.8"
+BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
+_btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
+
+FW_VERSION = "3.9"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -865,6 +868,23 @@ def http_poll():
         except Exception:
             pass
 
+# ---------------- boton fisico (BTN_PIN) ----------------
+btn_last = 1
+btn_at = 0
+
+def button_poll():
+    # Pulsacion corta: pasa al siguiente efecto (0..22).
+    global btn_last, btn_at
+    v = _btn.value()
+    if v == 0:
+        if btn_last == 1:
+            btn_at = time.ticks_ms()
+    elif btn_last == 0:
+        if time.ticks_diff(time.ticks_ms(), btn_at) >= 25:
+            state["mode"] = 0 if state["mode"] >= 22 else state["mode"] + 1
+            _push_ble()
+    btn_last = v
+
 # ---------------- bucle principal ----------------
 def loop():
     global pending, ntp_at
@@ -874,6 +894,7 @@ def loop():
     last = time.ticks_ms()
     night_at = time.ticks_ms()
     while True:
+        button_poll()
         http_poll()
         if pending is not None:
             c = pending
