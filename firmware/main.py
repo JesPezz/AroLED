@@ -16,7 +16,7 @@ _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "4.5"
+FW_VERSION = "4.6"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -779,6 +779,29 @@ def night_check():
     elif not inside and night_active:
         night_restore()
 
+ledmsg = "?"
+
+def _led_test(t):
+    # Diagnostico remoto: prueba 3 formas de crear/dirigir la tira.
+    #   t=1 usa la instancia actual (rojo) | t=2 la recrea (verde) | t=3 la crea con Pin OUT (azul)
+    global _np, ledmsg
+    try:
+        if t == "2":
+            _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
+            col = (0, 255, 0)
+        elif t == "3":
+            _np = neopixel.NeoPixel(machine.Pin(PIN, machine.Pin.OUT), NUM)
+            col = (0, 0, 255)
+        else:
+            col = (255, 0, 0)
+        for i in range(NUM):
+            _np[i] = col
+        _np.write()
+        ledmsg = "t" + t + " ok"
+    except Exception as e:
+        ledmsg = "t" + t + " err " + repr(e)[:40]
+    return ledmsg
+
 def _state_json():
     ip = ""
     ssid = ""
@@ -790,10 +813,10 @@ def _state_json():
         pass
     nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
     return ('{"dev":"AroLED","ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,"on":%d,'
-            '"net":"%s","ip":"%s","ssid":"%s","netmode":"%s","night":"%s","nets":[%s]}'
+            '"net":"%s","ip":"%s","ssid":"%s","netmode":"%s","led":"%s","night":"%s","nets":[%s]}'
             % (FW_VERSION, state["bright"], state["speed"], state["hue"],
                state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, _jesc(ssid), netmode(),
-               night_str, nets))
+               _jesc(ledmsg), night_str, nets))
 
 def _apply_param(k, v):
     if k == "bright":
@@ -858,6 +881,8 @@ def http_handle(path, q):
                     pass
         _push_ble()
         return _state_json()
+    if path == "/api/ledtest":
+        return '{"ok":true,"led":"%s"}' % _jesc(_led_test(q.get("t", "1")))
     if path == "/api/wifi":
         if "add" in q:
             add_net(q["add"], q.get("pass", ""))
