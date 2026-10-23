@@ -2,6 +2,11 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.6] - 2026-10-23
+### Corregido
+- El punto de estado se quedaba rojo con el aro conectado por Bluetooth: solo se ponía verde si una lectura GATT salía bien. Ahora se pone verde en cuanto el enlace BLE está establecido.
+- Los errores al enviar por Bluetooth se silenciaban, así que la app parecía conectada sin enviar nada. Ahora se muestran en la línea de estado («Sin enlace con el aro: …»).
+
 ## [4.5] - 2026-10-23
 ### Corregido
 - La app no encontraba el aro en modo WiFi: al abrir sin una IP válida se iba directo a Bluetooth (donde el aro no existe en ese modo) y se quedaba sin conexión. Ahora, si la IP guardada no responde, escanea la red local antes de caer a Bluetooth.

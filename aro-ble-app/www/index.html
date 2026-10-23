@@ -193,7 +193,7 @@
     var MODE = "ble";     // "ble" | "http"
     var httpBase = "";    // "http://<ip>"
     function isHttp() { return MODE === "http" && !!httpBase; }
-    var linkOk = false, httpFails = 0, healAt = 0;
+    var linkOk = false, httpFails = 0, healAt = 0, lastBleErr = "";
     function dotHtml() { return '<span class="dot' + (linkOk ? " on" : "") + '"></span>'; }
     function setLink(ok) { linkOk = !!ok; try { $("hdot").className = ok ? "dot on" : "dot"; } catch (e) {} }
     function loadIp() { try { return localStorage.getItem("aro_ip") || ""; } catch (e) { return ""; } }
@@ -224,7 +224,15 @@
         var v = queue[char]; queue[char] = undefined;
         try {
           await BLE.write({ deviceId: deviceId, service: SERVICE, characteristic: char, value: hexByte(v) });
-        } catch (e) { /* ignore transient write errors */ }
+          lastBleErr = "";
+        } catch (e) {
+          // No tragarse el fallo: sin esto la app parece conectada y no envia nada.
+          lastBleErr = (e && e.message) ? e.message : String(e);
+          setLink(false);
+          setStatus("Sin enlace con el aro: " + lastBleErr);
+          sending[char] = false;
+          return;
+        }
         await sleep(25);
       }
       sending[char] = false;
@@ -349,7 +357,7 @@
           await BLE.connect({ deviceId: id, timeout: 20000 });
           await BLE.discoverServices({ deviceId: id });
           deviceId = id;
-          MODE = "ble"; httpBase = "";
+          MODE = "ble"; httpBase = ""; setLink(true);
           $("devName").textContent = name || NAME;
           $("via").textContent = "(Bluetooth)";
           $("scanCard").classList.add("hidden");
@@ -528,7 +536,8 @@
         }
         return;
       }
-      if (!deviceId) return;
+      if (!deviceId) { setLink(false); return; }
+      setLink(true);
       try {
         var r = await BLE.read({ deviceId: deviceId, service: SERVICE, characteristic: CH_STAT });
         var b = hexToBytes((r && r.value) || "");
