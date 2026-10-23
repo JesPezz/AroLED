@@ -79,7 +79,7 @@
       <button data-m="20">Pacifica</button>
       <button data-m="21">Espectro</button>
       <button data-m="22">Aleatorio</button>
-      <button data-m="23">Nocturno</button>
+      <button data-m="23">Nocturno</button><button data-m="24">Reloj</button>
     </div>
 
     <div id="colorBlock">
@@ -442,7 +442,7 @@
     var modeBtns = Array.prototype.slice.call(document.querySelectorAll("#modes button"));
     function setModeUI(m) {
       modeBtns.forEach(function (b) { b.classList.toggle("on", +b.dataset.m === m); });
-      $("speedBlock").classList.toggle("hidden", m === 0);
+      $("speedBlock").classList.toggle("hidden", m === 0 || m === 24);
       $("colorBlock").classList.toggle("hidden", m !== 0);
     }
     function setMode(m) { setModeUI(m); applyParam("mode", m); }

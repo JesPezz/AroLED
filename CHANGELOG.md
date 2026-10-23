@@ -2,6 +2,13 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [4.2] - 2026-10-23
+### Agregado
+- Modo «Reloj» (24): el anillo muestra la hora como reloj de agujas (hora en rojo, minuto en verde, segundo en azul), con antialiasing entre LEDs. Portado del proyecto neoclock.
+- Botón «Reloj» en la app; en ese modo se ocultan la rueda de color y la velocidad.
+### Nota
+- El reloj necesita la hora real: solo la tiene en modo WiFi (NTP). En modo Bluetooth arranca en 00:00.
+
 ## [4.1] - 2026-10-23
 ### Agregado
 - `/api/state` publica `ssid`: la red WiFi a la que está conectado el aro (antes solo la IP).
