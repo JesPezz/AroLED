@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.5"
+FW_VERSION = "5.6"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -194,8 +194,7 @@ def del_net(ssid):
 #       6 Rebote | 7 Halloween | 8 Navidad | 9 Sinelon | 10 Juggle |
 #       11 Confeti | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
 #       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica
-state = {"bright": 5, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
-MAX_BRIGHT = 70  # tope de brillo: por encima de 70 el pico del aro hunde el 5V compartido (brownout)
+state = {"bright": 1, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
 
 h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
 pending = None
@@ -214,7 +213,7 @@ def _irq(event, data):
     elif event == _IRQ_WRITE:
         conn, attr = data
         if attr == h_bright:
-            state["bright"] = min(ble.gatts_read(h_bright)[0], MAX_BRIGHT)
+            state["bright"] = ble.gatts_read(h_bright)[0]
         elif attr == h_speed:
             state["speed"] = ble.gatts_read(h_speed)[0]
         elif attr == h_hue:
@@ -747,7 +746,7 @@ def night_load():
 def night_set(on, off, bright, enabled, zone):
     global night_str, tz
     c = load_cfg()
-    c["night"] = {"on": on, "off": off, "bright": _clamp(int(bright), 0, MAX_BRIGHT), "enabled": int(enabled)}
+    c["night"] = {"on": on, "off": off, "bright": _clamp(int(bright), 0, 255), "enabled": int(enabled)}
     if zone is not None:
         c["tz"] = int(zone)
         tz = int(zone)
@@ -758,7 +757,6 @@ def night_restore():
     global night_active, night_saved
     if night_saved:
         state["mode"], state["bright"], state["on"] = night_saved
-        state["bright"] = min(state["bright"], MAX_BRIGHT)
         _push_ble()
     night_active = False
 
@@ -778,7 +776,7 @@ def night_check():
     if inside and not night_active:
         night_saved = (state["mode"], state["bright"], state["on"])
         state["mode"] = 23
-        state["bright"] = _clamp(int(n.get("bright", 12)), 0, MAX_BRIGHT)
+        state["bright"] = _clamp(int(n.get("bright", 12)), 0, 255)
         state["on"] = 1
         _push_ble()
         night_active = True
@@ -823,7 +821,7 @@ def _state_json():
 
 def _apply_param(k, v):
     if k == "bright":
-        state["bright"] = _clamp(int(v), 0, MAX_BRIGHT)
+        state["bright"] = _clamp(int(v), 0, 255)
     elif k == "speed":
         state["speed"] = _clamp(int(v), 0, 100)
     elif k == "hue":

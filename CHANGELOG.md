@@ -2,6 +2,13 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.6] - 2026-10-24
+### Cambiado
+- Brillo por defecto en 1 % y slider de la app con minimo 1 % (antes el minimo era 5 %).
+
+### Eliminado
+- El tope de brillo `MAX_BRIGHT = 70` de v5.4. El usuario probara el maximo real con el condensador y la resistencia en la alimentacion de la tira; el firmware vuelve a aceptar el brillo completo de la app (1-100 %).
+
 ## [5.5] - 2026-10-24
 ### Corregido
 - `net.py` deja de escribir en la tira durante el arranque de red. `machine.bitstream` (RMT) dejaba el canal tomado y `main.py` no conseguia pintar: el anillo se quedaba fijo en el ultimo color del arranque (el verde de "conectado"). La tira la usa SOLO `main.py`. Se conservan el reloj (modo 24) y el tope de brillo `MAX_BRIGHT=70`.
