@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.3] - 2026-10-24
+### Agregado
+- Vuelve el modo Reloj (24) como reloj de agujas compacto: hora en rojo, minuto en verde y segundero suave en azul. Ocupa ~770 B (frente a 1.440 B del original) para no agotar el heap; el bucle sube a ~25 fps solo en este modo.
+
 ## [5.2] - 2026-10-24
 ### Cambiado
 - Restaura el feedback de LEDs en `net.py` durante el arranque de red (destello azul girando = conectando, verde = exito, apagado al final). En v5.0 se deshabilito por la hipotesis de que `machine.bitstream` dejaba el pin tomado; el bisecado mostro que la causa real era la falta de memoria del modo Reloj, no este feedback.

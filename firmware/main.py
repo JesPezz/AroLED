@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.2"
+FW_VERSION = "5.3"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -595,6 +595,25 @@ def fx_night():
         _np[i] = px
     nightph += 0.015 + state["speed"] * 0.001
 
+# ---- reloj de agujas: hora roja, minuto verde, segundo azul ----
+def _hand(pos, c):
+    b = int(pos)
+    fr = pos - b
+    for i, k in ((b, 1 - fr), (b + 1, fr)):
+        i %= NUM
+        p = _np[i]
+        _np[i] = (min(255, p[0] + int(c[0] * k)),
+                  min(255, p[1] + int(c[1] * k)),
+                  min(255, p[2] + int(c[2] * k)))
+
+def fx_clock():
+    t = time.localtime(time.time() + tz * 3600)
+    for i in range(NUM):
+        _np[i] = (0, 0, 0)
+    _hand(((t[3] % 12) + t[4] / 60.0) / 12.0 * NUM, scaled((255, 60, 60)))
+    _hand(t[4] / 60.0 * NUM, scaled((60, 255, 60)))
+    _hand((t[5] + (time.ticks_ms() % 1000) / 1000.0) / 60.0 * NUM, scaled((60, 60, 255)))
+
 _RND_MODES = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 rnd_cur = 1
 rnd_cnt = 0
@@ -623,6 +642,7 @@ def _run(m):
     elif m == 20: fx_pacifica()
     elif m == 21: fx_spectrum()
     elif m == 23: fx_night()
+    elif m == 24: fx_clock()
 
 def fx_random():
     # Va saltando de efecto en efecto cada cierto tiempo.
@@ -809,7 +829,7 @@ def _apply_param(k, v):
     elif k == "sat":
         state["sat"] = _clamp(int(v), 0, 255)
     elif k == "mode":
-        state["mode"] = _clamp(int(v), 0, 23)
+        state["mode"] = _clamp(int(v), 0, 24)
     elif k == "on":
         state["on"] = _clamp(int(v), 0, 1)
 
@@ -974,6 +994,8 @@ def loop():
         interval = 200 - state["speed"] * 2
         if interval < 8:
             interval = 8
+        if state["mode"] == 24:
+            interval = 40
         if time.ticks_diff(now, last) >= interval:
             last = now
             render()
