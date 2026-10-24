@@ -25,6 +25,9 @@
   .row label { font-size:14px; color:var(--sub); }
   .row b { font-variant-numeric:tabular-nums; }
   input[type=range] { width:100%; height:36px; accent-color:var(--hi); }
+  .sldrow { display:flex; align-items:center; gap:6px; }
+  .sldrow input[type=range] { flex:1; width:auto; }
+  .sldrow button.step { flex:0 0 44px; width:44px; height:44px; padding:0; font-size:20px; line-height:1; }
   .wheelwrap { position:relative; width:230px; max-width:74vw; aspect-ratio:1/1; margin:8px auto 2px; touch-action:none; }
   .wheelwrap canvas { width:100%; height:100%; display:block; border-radius:50%; box-shadow:0 0 0 1px var(--line); }
   .marker { position:absolute; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:50%;
@@ -92,11 +95,19 @@
     </div>
 
     <div class="row"><label>Brillo</label><b id="vBright">1</b></div>
-    <input type="range" id="bright" min="1" max="100" value="1" />
+    <div class="sldrow">
+      <button class="step" data-for="bright" data-d="-1" aria-label="Bajar brillo">−</button>
+      <input type="range" id="bright" min="1" max="100" value="1" />
+      <button class="step" data-for="bright" data-d="1" aria-label="Subir brillo">+</button>
+    </div>
 
     <div id="speedBlock">
       <div class="row"><label>Velocidad</label><b id="vSpeed">50</b></div>
-      <input type="range" id="speed" min="0" max="100" value="50" />
+      <div class="sldrow">
+        <button class="step" data-for="speed" data-d="-1" aria-label="Bajar velocidad">−</button>
+        <input type="range" id="speed" min="0" max="100" value="50" />
+        <button class="step" data-for="speed" data-d="1" aria-label="Subir velocidad">+</button>
+      </div>
     </div>
 
     <div class="row" style="margin-top:20px"><label>WiFi del ESP32</label></div>
@@ -119,7 +130,11 @@
       <label style="flex:1;font-size:13px;color:var(--sub)">Apagar<br><input id="nightOff" type="time" value="07:00" style="width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit"></label>
     </div>
     <div class="row"><label>Brillo nocturno</label><b id="vNight">12</b></div>
-    <input type="range" id="nightBright" min="1" max="60" value="12" />
+    <div class="sldrow">
+      <button class="step" data-for="nightBright" data-d="-1" aria-label="Bajar brillo nocturno">−</button>
+      <input type="range" id="nightBright" min="1" max="60" value="12" />
+      <button class="step" data-for="nightBright" data-d="1" aria-label="Subir brillo nocturno">+</button>
+    </div>
     <div style="margin-top:8px"><button id="btnNight">Guardar horario</button></div>
     <div style="margin-top:8px"><button id="btnNightOff">Desactivar luz nocturna</button></div>
     <div class="status" id="nightInfo">—</div>
@@ -490,6 +505,16 @@
     drawWheel(); placeMarker();
     $("bright").oninput = function (e) { $("vBright").textContent = e.target.value; applyParam("bright", +e.target.value); };
     $("speed").oninput = function (e) { $("vSpeed").textContent = e.target.value; applyParam("speed", +e.target.value); };
+
+    // Botones +/- de ajuste fino: mueven 1 unidad y disparan el oninput del slider.
+    document.querySelectorAll("button.step").forEach(function (b) {
+      b.onclick = function () {
+        var el = $(b.dataset.for);
+        var v = Math.min(+el.max, Math.max(+el.min, +el.value + +b.dataset.d));
+        el.value = v;
+        el.dispatchEvent(new Event("input"));
+      };
+    });
 
     // ---- comandos al ESP32 por BLE (WiFi / OTA / modo) ----
     function bytesToHex(arr) {

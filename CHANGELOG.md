@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.7] - 2026-10-24
+### Agregado
+- Botones `-` / `+` junto a los sliders de brillo, velocidad y brillo nocturno para ajuste fino de 1 en 1.
+
 ## [5.6] - 2026-10-24
 ### Cambiado
 - Brillo por defecto en 1 % y slider de la app con minimo 1 % (antes el minimo era 5 %).
