@@ -32,6 +32,18 @@ aro_led_app.html     App web de control (Web Bluetooth)
 - Datos de los LEDs en **GPIO 23**.
 - Botón **BOOT** (GPIO 0) para cambiar de modo con `button_sequences.py`.
 
+## Brillo
+
+El brillo de la app va de **1 a 100 %**, pero el **100 % equivale al 16 % real**
+del hardware (`BRIGHT_TOP = 16` en `firmware/main.py`). Por encima de ese nivel
+el pico de corriente de los 16 LEDs hunde la alimentación de 5 V compartida con
+el ESP32 (brownout) y el anillo se queda congelado o el ESP32 se reinicia.
+
+El firmware escala la recta `1 % → 1` y `100 % → 16`; la app sigue mostrando
+1-100. El tope está pensado para la fuente actual (módulo MH-CD42 alimentando
+aro y ESP32). Cuando se añada el **condensador (~1000 µF)** y la **resistencia
+(~330-470 Ω)** en la tira, se podrá subir `BRIGHT_TOP` y buscar el máximo real.
+
 ## Cargar el firmware
 
 1. Flashear MicroPython en el ESP32 (`firmware/micropython.bin`).

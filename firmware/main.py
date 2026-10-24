@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.7"
+FW_VERSION = "5.8"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -195,6 +195,7 @@ def del_net(ssid):
 #       11 Confeti | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
 #       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica
 state = {"bright": 1, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
+BRIGHT_TOP = 16  # 100% de la app = 16% real: tope estable con la fuente actual
 
 h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
 pending = None
@@ -324,7 +325,10 @@ def hsv(h, s, v):
     return (v, p, q)
 
 def scaled(rgb):
-    sc = state["bright"] * 255 // 100
+    b = state["bright"]
+    if b > 100:
+        b = 100
+    sc = (1 + (b - 1) * (BRIGHT_TOP - 1) // 99) * 255 // 100
     return (rgb[0] * sc // 255, rgb[1] * sc // 255, rgb[2] * sc // 255)
 
 # ---------------- efectos (1 frame cada uno) ----------------
