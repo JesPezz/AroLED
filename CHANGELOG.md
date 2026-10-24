@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.4] - 2026-10-24
+### Cambiado
+- Tope de brillo `MAX_BRIGHT = 70` en el firmware. Por encima de 70 el pico de corriente del aro hunde la salida 5 V compartida del MH-CD42 y el ESP32 hace brownout (reinicio). El tope se aplica al brillo por app/HTTP, BLE, modo nocturno y restauracion nocturna.
+
 ## [5.3] - 2026-10-24
 ### Agregado
 - Vuelve el modo Reloj (24) como reloj de agujas compacto: hora en rojo, minuto en verde y segundero suave en azul. Ocupa ~770 B (frente a 1.440 B del original) para no agotar el heap; el bucle sube a ~25 fps solo en este modo.
