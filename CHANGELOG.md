@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.1] - 2026-10-23
+### Cambiado
+- Se retira el modo Reloj (port de neoclock, 4.2) para recuperar 1,6 KB de firmware: el aro estaba en el limite de memoria del ESP32 y la tira dejaba de recibir datos. Los efectos y la API quedan igual.
+
 ## [5.0] - 2026-10-23
 ### Corregido
 - El anillo se quedaba clavado en el color del arranque de red y ya no respondia a nada: `net.py` usaba la tira durante el arranque (destello azul/verde) y dejaba tomado el canal del pin, de modo que las escrituras posteriores de `main.py` se ejecutaban sin error pero no llegaban a los LEDs. Ahora la tira la usa **solo** `main.py`.
