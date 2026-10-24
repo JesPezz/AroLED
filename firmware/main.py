@@ -27,10 +27,10 @@ def _led_init():
     # congelado: la segunda escribe sin que los LEDs reciban nada.
     global _np
     try:
-        if _led is not None:
-            _np = _led.get()
-        else:
-            _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
+        if _led is None:
+            _np = None
+            return False
+        _np = _led.get()
         return True
     except Exception:
         _np = None
@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "4.9"
+FW_VERSION = "5.0"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -815,21 +815,16 @@ def night_check():
 ledmsg = "?"
 
 def _led_test(t):
-    # Diagnostico remoto: prueba 3 formas de crear/dirigir la tira.
-    #   t=1 usa la instancia actual (rojo) | t=2 la recrea (verde) | t=3 la crea con Pin OUT (azul)
-    global _np, ledmsg
+    # Diagnostico remoto: t=1 rojo, t=2 verde, t=3 azul, otro=blanco.
+    global ledmsg
+    col = {"1": (255, 0, 0), "2": (0, 255, 0), "3": (0, 0, 255)}.get(t, (255, 255, 255))
     try:
-        if t == "2":
-            _np = neopixel.NeoPixel(machine.Pin(PIN), NUM)
-            col = (0, 255, 0)
-        elif t == "3":
-            _np = neopixel.NeoPixel(machine.Pin(PIN, machine.Pin.OUT), NUM)
-            col = (0, 0, 255)
-        else:
-            col = (255, 0, 0)
+        if _np is None and not _led_init():
+            ledmsg = "sin tira"
+            return ledmsg
         for i in range(NUM):
             _np[i] = col
-        _np.write()
+        _write()
         ledmsg = "t" + t + " ok"
     except Exception as e:
         ledmsg = "t" + t + " err " + repr(e)[:40]
@@ -846,9 +841,11 @@ def _state_json():
         pass
     nets = ",".join('"%s"' % _jesc(s) for s in net_ssids())
     return ('{"dev":"AroLED","ver":"%s","bright":%d,"speed":%d,"hue":%d,"sat":%d,"mode":%d,"on":%d,'
-            '"net":"%s","ip":"%s","ssid":"%s","netmode":"%s","led":"%s","night":"%s","nets":[%s]}'
+            '"w":%d,"net":"%s","ip":"%s","ssid":"%s","netmode":"%s","led":"%s","night":"%s","nets":[%s]}'
             % (FW_VERSION, state["bright"], state["speed"], state["hue"],
-               state["sat"], state["mode"], state["on"], _jesc(netmsg), ip, _jesc(ssid), netmode(),
+               state["sat"], state["mode"], state["on"],
+               (_led.writes if _led is not None else -1),
+               _jesc(netmsg), ip, _jesc(ssid), netmode(),
                _jesc(ledmsg), night_str, nets))
 
 def _apply_param(k, v):
@@ -879,15 +876,15 @@ def _push_ble():
 def http_start():
     global http_sock
     try:
+        gc.collect()
         s = socket.socket()
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("0.0.0.0", 80))
         s.listen(2)
         s.setblocking(False)
         http_sock = s
-    except Exception as e:
+    except Exception:
         http_sock = None
-        print("http:error", repr(e))
 
 def http_ensure():
     if http_sock is None and wlan is not None and wlan.isconnected():
@@ -953,6 +950,7 @@ def http_handle(path, q):
 
 def http_poll():
     if http_sock is None:
+        http_ensure()
         return
     try:
         c, _ = http_sock.accept()

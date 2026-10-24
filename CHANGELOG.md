@@ -2,6 +2,13 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.0] - 2026-10-23
+### Corregido
+- El anillo se quedaba clavado en el color del arranque de red y ya no respondia a nada: `net.py` usaba la tira durante el arranque (destello azul/verde) y dejaba tomado el canal del pin, de modo que las escrituras posteriores de `main.py` se ejecutaban sin error pero no llegaban a los LEDs. Ahora la tira la usa **solo** `main.py`.
+### Cambiado
+- La tira se escribe por software (`machine.bitstream`), sin el canal RMT del `neopixel`.
+- Se pierde el destello azul/verde de conexion y de OTA (era la causa del bloqueo).
+
 ## [4.9] - 2026-10-23
 ### Corregido
 - Un `led.py` ausente dejaba el aro sin arrancar (sin WiFi util ni BLE): el OTA anterior no sabia actualizar ese fichero nuevo y `main.py` moria al importarlo. Ahora la importacion es tolerante y, si falta, se usa la tira propia en vez de no arrancar.

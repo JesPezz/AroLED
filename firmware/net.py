@@ -6,7 +6,7 @@ import network, time, json, os, gc, socket, machine
 
 CFG = "cfg.json"
 REPO = "JesPezz/AroLED"
-FW_VERSION = "4.9"   # mantener en sincronia con main.py
+FW_VERSION = "5.0"   # mantener en sincronia con main.py
 # Manifiesto: firmware/version.txt de la rama main. Se sirve directo desde
 # raw.githubusercontent.com (un solo handshake TLS, el mas fiable en el ESP32);
 # jsdelivr queda de respaldo. NO se usa api.github.com (su TLS cuelga).
@@ -29,23 +29,17 @@ def _status(m):
         pass
 
 
-# ---------------- LEDs: feedback durante el arranque de red ----------------
+# ---------------- LEDs: SIN feedback durante el arranque de red ----------------
+# Aqui NO se escribe en la tira: machine.bitstream (RMT) deja el canal tomado
+# apuntando al pin y despues main.py no consigue pintar nada (las escrituras no
+# dan error pero los LEDs no cambian). La tira la usa SOLO main.py.
 def _np_init():
     global _np
-    if _np is None:
-        try:
-            import led
-            _np = led.get()
-        except Exception:
-            _np = None
+    _np = None
 
 
 def _fill(rgb):
-    if _np is None:
-        return
-    for i in range(NUM):
-        _np[i] = rgb
-    _np.write()
+    return
 
 
 _spin_i = 0
