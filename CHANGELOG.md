@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.2] - 2026-10-24
+### Cambiado
+- Restaura el feedback de LEDs en `net.py` durante el arranque de red (destello azul girando = conectando, verde = exito, apagado al final). En v5.0 se deshabilito por la hipotesis de que `machine.bitstream` dejaba el pin tomado; el bisecado mostro que la causa real era la falta de memoria del modo Reloj, no este feedback.
+
 ## [5.1] - 2026-10-23
 ### Cambiado
 - Se retira el modo Reloj (port de neoclock, 4.2) para recuperar 1,6 KB de firmware: el aro estaba en el limite de memoria del ESP32 y la tira dejaba de recibir datos. Los efectos y la API quedan igual.
