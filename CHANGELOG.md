@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.5] - 2026-10-24
+### Corregido
+- `net.py` deja de escribir en la tira durante el arranque de red. `machine.bitstream` (RMT) dejaba el canal tomado y `main.py` no conseguia pintar: el anillo se quedaba fijo en el ultimo color del arranque (el verde de "conectado"). La tira la usa SOLO `main.py`. Se conservan el reloj (modo 24) y el tope de brillo `MAX_BRIGHT=70`.
+
 ## [5.4] - 2026-10-24
 ### Cambiado
 - Tope de brillo `MAX_BRIGHT = 70` en el firmware. Por encima de 70 el pico de corriente del aro hunde la salida 5 V compartida del MH-CD42 y el ESP32 hace brownout (reinicio). El tope se aplica al brillo por app/HTTP, BLE, modo nocturno y restauracion nocturna.

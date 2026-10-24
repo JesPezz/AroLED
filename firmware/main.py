@@ -22,9 +22,9 @@ _np = None
 
 
 def _led_init():
-    # Una sola tira para todo el firmware (compartida con net.py, que la crea en
-    # el arranque de red). Dos instancias sobre el mismo pin dejan el anillo
-    # congelado: la segunda escribe sin que los LEDs reciban nada.
+    # Una sola tira para todo el firmware. Dos instancias sobre el mismo pin
+    # dejan el anillo congelado: la segunda escribe sin que los LEDs reciban nada.
+    # net.py NO toca la tira (dejaba el RMT tomado y main.py no pintaba).
     global _np
     try:
         if _led is None:
@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.4"
+FW_VERSION = "5.5"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
