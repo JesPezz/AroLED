@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.9] - 2026-10-25
+### Prueba
+- Build de prueba: `BRIGHT_TOP = 100` (el 100 % de la app = 100 % real) para buscar el maximo de brillo estable con el condensador y la resistencia instalados. Tras la prueba se fijara el tope definitivo.
+
 ## [5.8] - 2026-10-24
 ### Cambiado
 - El 100 % del slider de brillo pasa a ser el 16 % real del hardware (`BRIGHT_TOP = 16` en `main.py`): `scaled()` mapea 1-100 de la app a 1-16 reales. Por encima de ese nivel el pico de los 16 LEDs hunde el 5 V compartido con el ESP32 (brownout) y el anillo se congela o se reinicia. Documentado en `README.md`.
