@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.11] - 2026-10-25
+### Corregido
+- `/api/ledtest` pausa el render 8 s para que el LED encendido se vea (antes el bucle lo tapaba al instante). Con `?i=0` enciende solo el primer LED, para identificarlo fisicamente.
+
 ## [5.10] - 2026-10-25
 ### Agregado
 - `/api/ledtest` acepta el parametro `i` para encender **solo** un LED (identificacion fisica): `?t=1&i=0` enciende el primero en rojo y deja el resto apagado. Sin `i` sigue encendiendo todos.

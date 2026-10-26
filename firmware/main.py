@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.10"
+FW_VERSION = "5.11"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -788,11 +788,12 @@ def night_check():
         night_restore()
 
 ledmsg = "?"
+test_until = 0  # mientras > now, el bucle no renderiza (para ver el ledtest)
 
 def _led_test(t, i=-1):
     # Diagnostico remoto: t=1 rojo, t=2 verde, t=3 azul, otro=blanco.
     # i >= 0: enciende SOLO ese LED (identificacion); i < 0: todos.
-    global ledmsg
+    global ledmsg, test_until
     col = {"1": (255, 0, 0), "2": (0, 255, 0), "3": (0, 0, 255)}.get(t, (255, 255, 255))
     try:
         if _np is None and not _led_init():
@@ -801,6 +802,7 @@ def _led_test(t, i=-1):
         for j in range(NUM):
             _np[j] = col if (i < 0 or j == i) else (0, 0, 0)
         _write()
+        test_until = time.ticks_ms() + 8000
         ledmsg = "t" + t + (" i" + str(i) if i >= 0 else "") + " ok"
     except Exception as e:
         ledmsg = "t" + t + " err " + repr(e)[:40]
@@ -1007,7 +1009,8 @@ def loop():
             interval = 40
         if time.ticks_diff(now, last) >= interval:
             last = now
-            render()
+            if time.ticks_diff(test_until, now) <= 0:
+                render()
         if time.ticks_diff(now, night_at) >= 10000:
             night_at = now
             try:
