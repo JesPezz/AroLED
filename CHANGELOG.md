@@ -2,6 +2,12 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.16] - 2026-10-26
+### Corregido
+- Restaura el bloque de estado y `_fade()` que el recorte de la v5.15 elimino por error: los modos 8 y 14 (Centelleo), 9 (Sinelon), 10 (Juggle), 11 (Confeti), 12 (Cylon), 13 (Meteoro) y 17 (Rayo) fallaban con `NameError` y reiniciaban el aro.
+### Eliminado
+- `import neopixel` (sin uso: la tira la escribe `led.py`) y globales muertos (`_XMAS`, `nphase`, `PIN`) para compensar el tamano.
+
 ## [5.15] - 2026-10-25
 ### Cambiado
 - Brillo al 100 % real: `BRIGHT_TOP = 100` (100 % de la app = 100 % del hardware).

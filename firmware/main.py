@@ -1,14 +1,13 @@
 # AroLED - firmware MicroPython (ESP32)
 # OTA por GitHub Releases (release ESTABLE = /releases/latest).
 # Assets del release: "main.py" (este firmware) y, opcional, "main.py.sha256".
-import bluetooth, machine, neopixel, time, struct, math, random
+import bluetooth, machine, time, struct, math, random
 import os, json, network, socket
 from micropython import const
 
 _IRQ_DISCONNECT = const(2)
 _IRQ_WRITE = const(3)
 
-PIN = 23
 NUM = 16
 
 try:
@@ -47,7 +46,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.15"
+FW_VERSION = "5.16"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -352,11 +351,9 @@ breath = 0.0
 bpos = 0.0
 bdir = 1
 hphase = 0.0
-nphase = 0.0
 specph = 0.0
 
 _HALLOW = ((255, 90, 0), (150, 0, 255))   # naranja / morado
-_XMAS   = (200, 0, 0)                     # base rojo; verde y blanco abajo
 
 def fx_fixed():
     px = scaled(hsv(state["hue"], state["sat"], 255))
@@ -448,6 +445,17 @@ def fx_halloween():
     if random.randint(0, 14) == 0:
         _np[random.randint(0, NUM - 1)] = scaled((255, 255, 180))
     hphase += 0.03 + state["speed"] * 0.004
+
+# --- efectos populares (estilo WLED / FastLED) ---
+sinpos = jphase = cylpos = mphase = polphase = 0.0
+cyldir = 1
+twstate = [0] * NUM
+ltimer = 0
+
+def _fade(f):
+    for i in range(NUM):
+        r, g, b = _np[i]
+        _np[i] = (r * f // 255, g * f // 255, b * f // 255)
 
 def fx_sinelon():
     # Punto que se mueve con suavidad (seno) dejando estela.
