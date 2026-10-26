@@ -2,6 +2,11 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.14] - 2026-10-25
+### Cambiado
+- El 100 % del slider vuelve a ser el 100 % real (`BRIGHT_TOP = 100`).
+- El brillo se guarda en `cfg.json` 1,5 s despues del ultimo cambio y se restaura al arrancar con una rampa gradual (+1 cada 40 ms desde 1), sin saltar de golpe. El modo nocturno cancela la rampa.
+
 ## [5.13] - 2026-10-25
 ### Cambiado
 - Vuelve el tope de produccion `BRIGHT_TOP = 16` (el 100 % del slider = 16 % real). Se retira el build de prueba v5.9 (`BRIGHT_TOP = 100`). Se mantiene el `ledtest` por indice con `hold=1` para identificar LEDs.

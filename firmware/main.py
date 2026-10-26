@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.13"
+FW_VERSION = "5.14"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -195,7 +195,22 @@ def del_net(ssid):
 #       11 Confeti | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
 #       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica
 state = {"bright": 1, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
-BRIGHT_TOP = 16  # 100% de la app = 16% real: tope estable con la fuente actual
+BRIGHT_TOP = 100  # 100% de la app = 100% real
+
+# Brillo persistente: al arrancar sube en rampa hasta el ultimo valor guardado.
+try:
+    _boot_bright = int(load_cfg().get("bright", 1))
+except Exception:
+    _boot_bright = 1
+if _boot_bright < 1:
+    _boot_bright = 1
+elif _boot_bright > 100:
+    _boot_bright = 100
+bright_target = _boot_bright
+bright_ramp = time.ticks_ms()
+ramping = True
+cfg_dirty = False
+cfg_at = 0
 
 h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
 pending = None
@@ -208,13 +223,16 @@ def advertise():
     ble.gap_advertise(100000, adv_data=payload)
 
 def _irq(event, data):
-    global cmd_buf, pending
+    global cmd_buf, pending, cfg_dirty, cfg_at, ramping
     if event == _IRQ_DISCONNECT:
         advertise()
     elif event == _IRQ_WRITE:
         conn, attr = data
         if attr == h_bright:
             state["bright"] = ble.gatts_read(h_bright)[0]
+            cfg_dirty = True
+            cfg_at = time.ticks_ms()
+            ramping = False
         elif attr == h_speed:
             state["speed"] = ble.gatts_read(h_speed)[0]
         elif attr == h_hue:
@@ -765,7 +783,7 @@ def night_restore():
     night_active = False
 
 def night_check():
-    global night_active, night_saved
+    global night_active, night_saved, ramping
     n = load_cfg().get("night") or {}
     if not n.get("enabled"):
         if night_active:
@@ -781,6 +799,7 @@ def night_check():
         night_saved = (state["mode"], state["bright"], state["on"])
         state["mode"] = 23
         state["bright"] = _clamp(int(n.get("bright", 12)), 0, 255)
+        ramping = False
         state["on"] = 1
         _push_ble()
         night_active = True
@@ -827,10 +846,13 @@ def _state_json():
                _jesc(ledmsg), night_str, nets))
 
 def _apply_param(k, v):
-    global test_until
+    global test_until, cfg_dirty, cfg_at, ramping
     test_until = 0  # cualquier ajuste reanuda el render normal
     if k == "bright":
         state["bright"] = _clamp(int(v), 0, 255)
+        cfg_dirty = True
+        cfg_at = time.ticks_ms()
+        ramping = False
     elif k == "speed":
         state["speed"] = _clamp(int(v), 0, 100)
     elif k == "hue":
@@ -978,7 +1000,7 @@ def button_poll():
 
 # ---------------- bucle principal ----------------
 def loop():
-    global pending, ntp_at
+    global pending, ntp_at, bright_ramp, ramping, cfg_dirty
     stat_sent = None
     boot_at = time.ticks_ms()
     committed = False
@@ -1004,6 +1026,22 @@ def loop():
             _write_int(BOOTCNT_PATH, 0)
             committed = True
         now = time.ticks_ms()
+        # Rampa de arranque: sube de 1 al ultimo brillo guardado.
+        if ramping and time.ticks_diff(now, bright_ramp) >= 40:
+            bright_ramp = now
+            if state["bright"] < bright_target:
+                state["bright"] += 1
+            else:
+                ramping = False
+        # Guarda el brillo 1,5 s despues del ultimo cambio (no en cada evento).
+        if cfg_dirty and time.ticks_diff(now, cfg_at) >= 1500:
+            cfg_dirty = False
+            try:
+                c = load_cfg()
+                c["bright"] = state["bright"]
+                save_cfg(c)
+            except Exception:
+                pass
         interval = 200 - state["speed"] * 2
         if interval < 8:
             interval = 8
