@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.10] - 2026-10-25
+### Agregado
+- `/api/ledtest` acepta el parametro `i` para encender **solo** un LED (identificacion fisica): `?t=1&i=0` enciende el primero en rojo y deja el resto apagado. Sin `i` sigue encendiendo todos.
+
 ## [5.9] - 2026-10-25
 ### Prueba
 - Build de prueba: `BRIGHT_TOP = 100` (el 100 % de la app = 100 % real) para buscar el maximo de brillo estable con el condensador y la resistencia instalados. Tras la prueba se fijara el tope definitivo.
