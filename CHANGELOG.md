@@ -2,6 +2,14 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.15] - 2026-10-25
+### Cambiado
+- Brillo al 100 % real: `BRIGHT_TOP = 100` (100 % de la app = 100 % del hardware).
+- El ultimo brillo configurado se guarda en `cfg.json` 1,5 s despues del ultimo cambio (debounce) y se restaura al arrancar.
+- Rampa de arranque: el brillo sube de 1 % al valor guardado (+1 cada 40 ms) en vez de saltar de golpe. El modo nocturno cancela la rampa.
+### Eliminado
+- `fx_navidad` y `fx_pacifica` para volver a caber bajo el limite de RAM (~34 KB). Los modos 8 y 20 ahora usan `fx_twinkle` y `fx_breath`.
+
 ## [5.14] - 2026-10-25
 ### Cambiado
 - El 100 % del slider vuelve a ser el 100 % real (`BRIGHT_TOP = 100`).

@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.14"
+FW_VERSION = "5.15"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -197,16 +197,11 @@ def del_net(ssid):
 state = {"bright": 1, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
 BRIGHT_TOP = 100  # 100% de la app = 100% real
 
-# Brillo persistente: al arrancar sube en rampa hasta el ultimo valor guardado.
+# Brillo persistente: rampa de arranque hasta el ultimo valor guardado.
 try:
-    _boot_bright = int(load_cfg().get("bright", 1))
+    bright_target = min(max(int(load_cfg().get("bright", 1)), 1), 100)
 except Exception:
-    _boot_bright = 1
-if _boot_bright < 1:
-    _boot_bright = 1
-elif _boot_bright > 100:
-    _boot_bright = 100
-bright_target = _boot_bright
+    bright_target = 1
 bright_ramp = time.ticks_ms()
 ramping = True
 cfg_dirty = False
@@ -454,34 +449,6 @@ def fx_halloween():
         _np[random.randint(0, NUM - 1)] = scaled((255, 255, 180))
     hphase += 0.03 + state["speed"] * 0.004
 
-def fx_navidad():
-    # Segmentos rojo/verde que se desplazan + centelleo blanco.
-    global nphase
-    seg = 4
-    phase = int(nphase) % (2 * seg)
-    for i in range(NUM):
-        g = ((i + phase) // seg) % 2
-        _np[i] = scaled((200, 0, 0) if g == 0 else (0, 180, 0))
-    if random.randint(0, 9) == 0:
-        _np[random.randint(0, NUM - 1)] = scaled((255, 255, 255))
-    nphase += 0.2 + state["speed"] * 0.02
-
-# --- efectos populares (estilo WLED / FastLED) ---
-sinpos = 0.0
-jphase = 0.0
-cylpos = 0.0
-cyldir = 1
-mphase = 0.0
-twstate = [0] * NUM
-ltimer = 0
-polphase = 0.0
-pacph = 0.0
-
-def _fade(f):
-    for i in range(NUM):
-        r, g, b = _np[i]
-        _np[i] = (r * f // 255, g * f // 255, b * f // 255)
-
 def fx_sinelon():
     # Punto que se mueve con suavidad (seno) dejando estela.
     global sinpos
@@ -586,18 +553,6 @@ def fx_glitter():
     for _ in range(1 + state["speed"] // 30):
         _np[random.randint(0, NUM - 1)] = scaled((255, 255, 255))
 
-def fx_pacifica():
-    # Olas azules/cian lentas.
-    global pacph
-    for i in range(NUM):
-        v = (math.sin(i * 0.5 + pacph) + math.sin(i * 0.8 - pacph * 1.3)) * 0.5
-        g = int(70 + 60 * v)
-        b = int(120 + 100 * v)
-        if g < 0: g = 0
-        if b < 0: b = 0
-        _np[i] = scaled((0, g, b))
-    pacph += 0.03 + state["speed"] * 0.004
-
 def fx_spectrum():
     # Color liso que recorre todo el espectro (siempre encendido).
     global specph
@@ -649,7 +604,7 @@ def _run(m):
     elif m == 5: fx_sparkle()
     elif m == 6: fx_bounce()
     elif m == 7: fx_halloween()
-    elif m == 8: fx_navidad()
+    elif m == 8: fx_twinkle()
     elif m == 9: fx_sinelon()
     elif m == 10: fx_juggle()
     elif m == 11: fx_confetti()
@@ -661,7 +616,7 @@ def _run(m):
     elif m == 17: fx_lightning()
     elif m == 18: fx_police()
     elif m == 19: fx_glitter()
-    elif m == 20: fx_pacifica()
+    elif m == 20: fx_breath()
     elif m == 21: fx_spectrum()
     elif m == 23: fx_night()
     elif m == 24: fx_clock()
@@ -1026,20 +981,14 @@ def loop():
             _write_int(BOOTCNT_PATH, 0)
             committed = True
         now = time.ticks_ms()
-        # Rampa de arranque: sube de 1 al ultimo brillo guardado.
         if ramping and time.ticks_diff(now, bright_ramp) >= 40:
             bright_ramp = now
-            if state["bright"] < bright_target:
-                state["bright"] += 1
-            else:
-                ramping = False
-        # Guarda el brillo 1,5 s despues del ultimo cambio (no en cada evento).
+            state["bright"] = min(state["bright"] + 1, bright_target)
+            ramping = state["bright"] < bright_target
         if cfg_dirty and time.ticks_diff(now, cfg_at) >= 1500:
             cfg_dirty = False
             try:
-                c = load_cfg()
-                c["bright"] = state["bright"]
-                save_cfg(c)
+                c = load_cfg(); c["bright"] = state["bright"]; save_cfg(c)
             except Exception:
                 pass
         interval = 200 - state["speed"] * 2
