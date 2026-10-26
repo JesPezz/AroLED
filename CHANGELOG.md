@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.12] - 2026-10-25
+### Agregado
+- `ledtest` acepta `hold=1` para dejar un LED fijo (1 h) y poder identificarlo fisicamente; cualquier `/api/set` (o cambio BLE) reanuda el modo normal.
+
 ## [5.11] - 2026-10-25
 ### Corregido
 - `/api/ledtest` pausa el render 8 s para que el LED encendido se vea (antes el bucle lo tapaba al instante). Con `?i=0` enciende solo el primer LED, para identificarlo fisicamente.

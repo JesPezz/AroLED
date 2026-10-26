@@ -47,7 +47,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.11"
+FW_VERSION = "5.12"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -790,7 +790,7 @@ def night_check():
 ledmsg = "?"
 test_until = 0  # mientras > now, el bucle no renderiza (para ver el ledtest)
 
-def _led_test(t, i=-1):
+def _led_test(t, i=-1, hold=0):
     # Diagnostico remoto: t=1 rojo, t=2 verde, t=3 azul, otro=blanco.
     # i >= 0: enciende SOLO ese LED (identificacion); i < 0: todos.
     global ledmsg, test_until
@@ -802,7 +802,7 @@ def _led_test(t, i=-1):
         for j in range(NUM):
             _np[j] = col if (i < 0 or j == i) else (0, 0, 0)
         _write()
-        test_until = time.ticks_ms() + 8000
+        test_until = time.ticks_ms() + (3600000 if hold else 8000)
         ledmsg = "t" + t + (" i" + str(i) if i >= 0 else "") + " ok"
     except Exception as e:
         ledmsg = "t" + t + " err " + repr(e)[:40]
@@ -827,6 +827,8 @@ def _state_json():
                _jesc(ledmsg), night_str, nets))
 
 def _apply_param(k, v):
+    global test_until
+    test_until = 0  # cualquier ajuste reanuda el render normal
     if k == "bright":
         state["bright"] = _clamp(int(v), 0, 255)
     elif k == "speed":
@@ -894,7 +896,7 @@ def http_handle(path, q):
             _i = int(q.get("i", "-1"))
         except Exception:
             _i = -1
-        return '{"ok":true,"led":"%s"}' % _jesc(_led_test(q.get("t", "1"), _i))
+        return '{"ok":true,"led":"%s"}' % _jesc(_led_test(q.get("t", "1"), _i, q.get("hold", "0") == "1"))
     if path == "/api/wifi":
         if "add" in q:
             add_net(q["add"], q.get("pass", ""))
