@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.13] - 2026-10-25
+### Cambiado
+- Vuelve el tope de produccion `BRIGHT_TOP = 16` (el 100 % del slider = 16 % real). Se retira el build de prueba v5.9 (`BRIGHT_TOP = 100`). Se mantiene el `ledtest` por indice con `hold=1` para identificar LEDs.
+
 ## [5.12] - 2026-10-25
 ### Agregado
 - `ledtest` acepta `hold=1` para dejar un LED fijo (1 h) y poder identificarlo fisicamente; cualquier `/api/set` (o cambio BLE) reanuda el modo normal.
