@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.17] - 2026-10-26
+### Cambiado
+- La app deja de mostrar los botones «Navidad» (modo 8) y «Pacifica» (modo 20). Esos efectos se retiraron en 5.15 por falta de RAM y el firmware los redirige a Centelleo y Latido; ahora la lista de la app coincide con los efectos reales.
+
 ## [5.16] - 2026-10-26
 ### Corregido
 - Restaura el bloque de estado y `_fade()` que el recorte de la v5.15 elimino por error: los modos 8 y 14 (Centelleo), 9 (Sinelon), 10 (Juggle), 11 (Confeti), 12 (Cylon), 13 (Meteoro) y 17 (Rayo) fallaban con `NameError` y reiniciaban el aro.
