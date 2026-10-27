@@ -2,6 +2,10 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.18] - 2026-10-26
+### Cambiado
+- Reloj (modo 24): cada aguja enciende **un solo LED** (redondeo a la posicion mas cercana) en vez de repartir el color entre dos. Ahora se ven como maximo 3 LEDs (hora roja, minuto verde, segundo azul) y se lee de un vistazo.
+
 ## [5.17] - 2026-10-26
 ### Cambiado
 - La app deja de mostrar los botones «Navidad» (modo 8) y «Pacifica» (modo 20). Esos efectos se retiraron en 5.15 por falta de RAM y el firmware los redirige a Centelleo y Latido; ahora la lista de la app coincide con los efectos reales.

@@ -46,7 +46,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.17"
+FW_VERSION = "5.18"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -582,14 +582,8 @@ def fx_night():
 
 # ---- reloj de agujas: hora roja, minuto verde, segundo azul ----
 def _hand(pos, c):
-    b = int(pos)
-    fr = pos - b
-    for i, k in ((b, 1 - fr), (b + 1, fr)):
-        i %= NUM
-        p = _np[i]
-        _np[i] = (min(255, p[0] + int(c[0] * k)),
-                  min(255, p[1] + int(c[1] * k)),
-                  min(255, p[2] + int(c[2] * k)))
+    # Una sola aguja por LED (redondeo), para que el reloj se lea de un vistazo.
+    _np[int(pos + 0.5) % NUM] = c
 
 def fx_clock():
     t = time.localtime(time.time() + tz * 3600)
@@ -597,7 +591,7 @@ def fx_clock():
         _np[i] = (0, 0, 0)
     _hand(((t[3] % 12) + t[4] / 60.0) / 12.0 * NUM, scaled((255, 60, 60)))
     _hand(t[4] / 60.0 * NUM, scaled((60, 255, 60)))
-    _hand((t[5] + (time.ticks_ms() % 1000) / 1000.0) / 60.0 * NUM, scaled((60, 60, 255)))
+    _hand(t[5] / 60.0 * NUM, scaled((60, 60, 255)))
 
 _RND_MODES = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 rnd_cur = 1
