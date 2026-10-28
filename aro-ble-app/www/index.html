@@ -70,7 +70,6 @@
       <button data-m="7">Halloween</button>
       <button data-m="9">Sinelon</button>
       <button data-m="10">Juggle</button>
-      <button data-m="11">Confeti</button>
       <button data-m="12">Cylon</button>
       <button data-m="13">Meteoro</button>
       <button data-m="14">Centelleo</button>
@@ -79,9 +78,10 @@
       <button data-m="17">Rayo</button>
       <button data-m="18">Policía</button>
       <button data-m="19">Purpurina</button>
+      <button data-m="20">Pacifica</button>
       <button data-m="21">Espectro</button>
       <button data-m="22">Aleatorio</button>
-      <button data-m="23">Nocturno</button><button data-m="24">Reloj</button>
+      <button data-m="24">Reloj</button>
     </div>
 
     <div id="colorBlock">
@@ -133,6 +133,8 @@
       <input type="range" id="nightBright" min="1" max="60" value="12" />
       <button class="step" data-for="nightBright" data-d="1" aria-label="Subir brillo nocturno">+</button>
     </div>
+    <div class="row" style="margin-top:4px"><label>Modo nocturno</label></div>
+    <select id="nightMode" style="width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);background:#0f1428;color:var(--txt);font:inherit"></select>
     <div style="margin-top:8px"><button id="btnNight">Guardar horario</button></div>
     <div style="margin-top:8px"><button id="btnNightOff">Desactivar luz nocturna</button></div>
     <div class="status" id="nightInfo">—</div>
@@ -691,18 +693,29 @@
       if (p[0]) $("nightOn").value = p[0];
       if (p[1]) $("nightOff").value = p[1];
       if (p[2]) { $("nightBright").value = p[2]; $("vNight").textContent = p[2]; }
+      if (p[4]) $("nightMode").value = p[4];
       $("nightInfo").textContent = (p[3] === "1") ? ("Activa " + p[0] + "–" + p[1]) : "Desactivada";
     }
     async function saveNight(enabled) {
-      var on = $("nightOn").value || "21:00", off = $("nightOff").value || "07:00", b = $("nightBright").value || 12;
+      var on = $("nightOn").value || "21:00", off = $("nightOff").value || "07:00", b = $("nightBright").value || 12, m = $("nightMode").value || 24;
       if (!isHttp()) { setStatus("El horario necesita el aro en modo WiFi (LAN)."); return; }
-      var st = await httpReq("/api/night?on=" + encodeURIComponent(on) + "&off=" + encodeURIComponent(off) + "&bright=" + b + "&enabled=" + enabled, 3000);
+      var st = await httpReq("/api/night?on=" + encodeURIComponent(on) + "&off=" + encodeURIComponent(off) + "&bright=" + b + "&enabled=" + enabled + "&mode=" + m, 3000);
       if (st) showNight(st.night);
       setStatus(enabled ? "Horario guardado." : "Luz nocturna desactivada.");
     }
     $("nightBright").oninput = function () { $("vNight").textContent = $("nightBright").value; };
     $("btnNight").onclick = function () { saveNight(1); };
     $("btnNightOff").onclick = function () { saveNight(0); };
+    (function () {
+      var sel = $("nightMode");
+      document.querySelectorAll("button[data-m]").forEach(function (b) {
+        var o = document.createElement("option");
+        o.value = b.dataset.m;
+        o.textContent = b.textContent;
+        sel.appendChild(o);
+      });
+      sel.value = "24";
+    })();
 
     // Al abrir: intenta WiFi (si hay IP guardada) y si no, Bluetooth.
     window.addEventListener("load", function () {

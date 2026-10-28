@@ -2,6 +2,12 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.19] - 2026-10-27
+### Cambiado
+- Se retiran los modos Confeti (11) y Nocturno (23): el 11 pasa a Destellos y el 23 al Reloj.
+- Vuelve Pacifica (modo 20) con su boton en la app.
+- El horario nocturno ya no fuerza un modo fijo: se elige el modo nocturno desde la app (`night.mode`, por defecto Reloj 24). Al empezar la noche se encienden los LEDs (aunque estuvieran apagados) con ese modo y brillo; al terminar se apagan.
+
 ## [5.18] - 2026-10-26
 ### Cambiado
 - Reloj (modo 24): cada aguja enciende **un solo LED** (redondeo a la posicion mas cercana) en vez de repartir el color entre dos. Ahora se ven como maximo 3 LEDs (hora roja, minuto verde, segundo azul) y se lee de un vistazo.

@@ -46,7 +46,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.18"
+FW_VERSION = "5.19"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -190,9 +190,10 @@ def del_net(ssid):
 
 # ---------------- BLE ----------------
 # modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos |
-#       6 Rebote | 7 Halloween | 8 Navidad | 9 Sinelon | 10 Juggle |
-#       11 Confeti | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
-#       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica
+#       6 Rebote | 7 Halloween | 8 Centelleo | 9 Sinelon | 10 Juggle |
+#       11 Destellos | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
+#       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica |
+#       21 Espectro | 22 Aleatorio | 24 Reloj
 state = {"bright": 1, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
 BRIGHT_TOP = 100  # 100% de la app = 100% real
 
@@ -475,12 +476,6 @@ def fx_juggle():
         _np[p] = scaled(hsv(k * 256 // n, 255, 255))
     jphase += 0.08 + state["speed"] * 0.008
 
-def fx_confetti():
-    # Puntos de color aleatorios que se apagan poco a poco.
-    _fade(225)
-    for _ in range(1 + state["speed"] // 30):
-        _np[random.randint(0, NUM - 1)] = scaled(hsv(random.randint(0, 255), 255, 255))
-
 def fx_cylon():
     # Escáner tipo Cylon/Larson (punto rojo que barre con estela).
     global cylpos, cyldir
@@ -569,16 +564,19 @@ def fx_spectrum():
         _np[i] = px
     specph += 1 + state["speed"] // 8
 
-nightph = 0.0
+pacph = 0.0
 
-def fx_night():
-    # Lampara de noche: ambar calido y tenue, con un latido lento y suave.
-    global nightph
-    v = 0.8 + 0.2 * (math.sin(nightph) * 0.5 + 0.5)
-    px = scaled((int(255 * v), int(110 * v), int(25 * v)))
+def fx_pacifica():
+    # Olas azules/cian lentas.
+    global pacph
     for i in range(NUM):
-        _np[i] = px
-    nightph += 0.015 + state["speed"] * 0.001
+        v = (math.sin(i * 0.5 + pacph) + math.sin(i * 0.8 - pacph * 1.3)) * 0.5
+        g = int(70 + 60 * v)
+        b = int(120 + 100 * v)
+        if g < 0: g = 0
+        if b < 0: b = 0
+        _np[i] = scaled((0, g, b))
+    pacph += 0.03 + state["speed"] * 0.004
 
 # ---- reloj de agujas: hora roja, minuto verde, segundo azul ----
 def _hand(pos, c):
@@ -593,7 +591,7 @@ def fx_clock():
     _hand(t[4] / 60.0 * NUM, scaled((60, 255, 60)))
     _hand(t[5] / 60.0 * NUM, scaled((60, 60, 255)))
 
-_RND_MODES = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
+_RND_MODES = (0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 21)
 rnd_cur = 1
 rnd_cnt = 0
 
@@ -609,7 +607,7 @@ def _run(m):
     elif m == 8: fx_twinkle()
     elif m == 9: fx_sinelon()
     elif m == 10: fx_juggle()
-    elif m == 11: fx_confetti()
+    elif m == 11: fx_sparkle()
     elif m == 12: fx_cylon()
     elif m == 13: fx_meteor()
     elif m == 14: fx_twinkle()
@@ -618,9 +616,9 @@ def _run(m):
     elif m == 17: fx_lightning()
     elif m == 18: fx_police()
     elif m == 19: fx_glitter()
-    elif m == 20: fx_breath()
+    elif m == 20: fx_pacifica()
     elif m == 21: fx_spectrum()
-    elif m == 23: fx_night()
+    elif m == 23: fx_clock()
     elif m == 24: fx_clock()
 
 def fx_random():
@@ -720,23 +718,32 @@ def night_load():
     c = load_cfg()
     tz = int(c.get("tz", -6))
     n = c.get("night") or {}
-    night_str = "%s|%s|%s|%s" % (n.get("on", ""), n.get("off", ""), n.get("bright", 12), n.get("enabled", 0))
+    night_str = "%s|%s|%s|%s|%s" % (n.get("on", ""), n.get("off", ""), n.get("bright", 12), n.get("enabled", 0), n.get("mode", 24))
 
-def night_set(on, off, bright, enabled, zone):
+def night_set(on, off, bright, enabled, zone, mode=24):
     global night_str, tz
     c = load_cfg()
-    c["night"] = {"on": on, "off": off, "bright": _clamp(int(bright), 0, 255), "enabled": int(enabled)}
+    c["night"] = {"on": on, "off": off, "bright": _clamp(int(bright), 0, 255), "enabled": int(enabled), "mode": _clamp(int(mode), 0, 24)}
     if zone is not None:
         c["tz"] = int(zone)
         tz = int(zone)
     save_cfg(c)
-    night_str = "%s|%s|%d|%d" % (on, off, c["night"]["bright"], c["night"]["enabled"])
+    night_str = "%s|%s|%d|%d|%d" % (on, off, c["night"]["bright"], c["night"]["enabled"], c["night"]["mode"])
 
 def night_restore():
     global night_active, night_saved
     if night_saved:
         state["mode"], state["bright"], state["on"] = night_saved
         _push_ble()
+    night_active = False
+
+def night_end():
+    # Fin del horario: recupera el modo y apaga los LEDs.
+    global night_active, night_saved
+    if night_saved:
+        state["mode"], state["bright"], _ = night_saved
+        _push_ble()
+    state["on"] = 0
     night_active = False
 
 def night_check():
@@ -754,14 +761,14 @@ def night_check():
     inside = (on <= mn < off) if on <= off else (mn >= on or mn < off)
     if inside and not night_active:
         night_saved = (state["mode"], state["bright"], state["on"])
-        state["mode"] = 23
+        state["mode"] = _clamp(int(n.get("mode", 24)), 0, 24)
         state["bright"] = _clamp(int(n.get("bright", 12)), 0, 255)
         ramping = False
         state["on"] = 1
         _push_ble()
         night_active = True
     elif not inside and night_active:
-        night_restore()
+        night_end()
 
 ledmsg = "?"
 test_until = 0  # mientras > now, el bucle no renderiza (para ver el ledtest)
@@ -901,13 +908,14 @@ def http_handle(path, q):
         pending = "M\t" + m
         return '{"ok":true,"mode":"' + m + '"}'
     if path == "/api/night":
-        if "on" in q or "off" in q or "enabled" in q or "tz" in q:
+        if "on" in q or "off" in q or "enabled" in q or "tz" in q or "mode" in q:
             c = load_cfg().get("night") or {}
             on = q.get("on", c.get("on", ""))
             off = q.get("off", c.get("off", ""))
             br = q.get("bright", c.get("bright", 12))
             en = q.get("enabled", c.get("enabled", 0))
-            night_set(on, off, br, en, q.get("tz", None))
+            md = q.get("mode", c.get("mode", 24))
+            night_set(on, off, br, en, q.get("tz", None), md)
         return _state_json()
     return '{"error":"ruta desconocida"}'
 
