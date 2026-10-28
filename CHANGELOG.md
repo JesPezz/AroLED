@@ -2,6 +2,14 @@
 
 Todas las novedades relevantes del proyecto AroLED.
 
+## [5.20] - 2026-10-28
+### Corregido
+- Si al arrancar no habia WiFi, el firmware se pasaba a BLE y **no lo reintentaba nunca** (quedaba inalcanzable por LAN hasta un ciclo de energia). Ahora:
+  - No se rinde al primer fallo: guarda `ble` solo tras **3 intentos** de arranque.
+  - Estando en BLE, **reintenta WiFi cada 30 min** (reinicio con sonda) para volver solo cuando la red reaparezca.
+  - Reanuncia BLE cada 60 s si el anuncio se cae (antes se quedaba mudo tras un fallo de conexion).
+- El rescate por BLE (`C`) volvia a BLE: `_goto_net("wifi")` ahora **persiste** `netmode.txt = wifi` (antes solo hacia un arranque one-shot).
+
 ## [5.19] - 2026-10-27
 ### Cambiado
 - Se retiran los modos Confeti (11) y Nocturno (23): el 11 pasa a Destellos y el 23 al Reloj.

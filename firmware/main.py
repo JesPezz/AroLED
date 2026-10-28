@@ -5,6 +5,7 @@ import bluetooth, machine, time, struct, math, random
 import os, json, network, socket
 from micropython import const
 
+_IRQ_CONNECT = const(1)
 _IRQ_DISCONNECT = const(2)
 _IRQ_WRITE = const(3)
 
@@ -13,17 +14,14 @@ NUM = 16
 try:
     import led as _led
 except ImportError:
-    # Si led.py no esta (p. ej. OTA viejo que no lo traia), no se puede dejar el
-    # arranque sin levantar: se cae a la tira propia en vez de morir al importar.
+    # Si led.py no esta (OTA viejo), no morir al importar: se usa la tira propia.
     _led = None
 
 _np = None
 
 
 def _led_init():
-    # Una sola tira para todo el firmware. Dos instancias sobre el mismo pin
-    # dejan el anillo congelado: la segunda escribe sin que los LEDs reciban nada.
-    # net.py NO toca la tira (dejaba el RMT tomado y main.py no pintaba).
+    # Una sola tira: dos instancias sobre el pin dejan el anillo congelado.
     global _np
     try:
         if _led is None:
@@ -46,7 +44,7 @@ def _write():
 BTN_PIN = 27   # pulsador fisico a GND (pull-up interno); cambia de efecto
 _btn = machine.Pin(BTN_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-FW_VERSION = "5.19"
+FW_VERSION = "5.20"
 
 SERVICE   = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890ab")
 CH_BRIGHT = bluetooth.UUID("a0e1e0a0-1b1c-4a2b-8c3d-1234567890a1")
@@ -116,11 +114,7 @@ def _write_int(path, v):
         pass
 
 # ---------------- rollback automatico (boot-loop) ----------------
-# Si el firmware nuevo no llega a "confirmar" el arranque (3 reintentos),
-# se restaura main.bak y se reinicia. Ojo: una sola main.py (no hay boot.py),
-# asi que solo cubre fallos que provocan reset (excepcion -> reset en el
-# arranque o un colgado que acaba en WDT). Un cuelgue duro sin reset no se
-# recupera solo; para eso habria que anadir machine.WDT.
+# Sin confirmar el arranque en 3 intentos: restaura main.bak y reinicia.
 def _restore_bak():
     try:
         src = open("main.bak", "rb").read()
@@ -189,11 +183,7 @@ def del_net(ssid):
     save_cfg(c)
 
 # ---------------- BLE ----------------
-# modo: 0 Fijo | 1 Arcoiris | 2 Fuego | 3 Cometa | 4 Latido | 5 Destellos |
-#       6 Rebote | 7 Halloween | 8 Centelleo | 9 Sinelon | 10 Juggle |
-#       11 Destellos | 12 Cylon | 13 Meteoro | 14 Centelleo | 15 Pride |
-#       16 Vela | 17 Rayo | 18 Policia | 19 Purpurina | 20 Pacifica |
-#       21 Espectro | 22 Aleatorio | 24 Reloj
+# modos 0-24 (ver README y los botones de la app)
 state = {"bright": 1, "speed": 50, "hue": 0, "sat": 255, "mode": 1, "on": 1}
 BRIGHT_TOP = 100  # 100% de la app = 100% real
 
@@ -210,6 +200,7 @@ cfg_at = 0
 h_bright = h_speed = h_hue = h_mode = h_sat = h_cmd = h_ver = None
 pending = None
 cmd_buf = b""
+ble_conn = False
 
 def advertise():
     nm = b"AroLED"
@@ -218,8 +209,11 @@ def advertise():
     ble.gap_advertise(100000, adv_data=payload)
 
 def _irq(event, data):
-    global cmd_buf, pending, cfg_dirty, cfg_at, ramping
-    if event == _IRQ_DISCONNECT:
+    global cmd_buf, pending, cfg_dirty, cfg_at, ramping, ble_conn
+    if event == _IRQ_CONNECT:
+        ble_conn = True
+    elif event == _IRQ_DISCONNECT:
+        ble_conn = False
         advertise()
     elif event == _IRQ_WRITE:
         conn, attr = data
@@ -280,6 +274,8 @@ def _goto_net(mode):
     # Cambia a un arranque de red: deja la bandera y reinicia. boot.py hara el
     # WiFi/OTA (WiFi y BLE no conviven en una misma sesion en este ESP32).
     set_net("reiniciando:" + mode)
+    if mode == "wifi":
+        save_netmode("wifi")
     try:
         with open("mode.txt", "w") as f:
             f.write(mode)
@@ -971,6 +967,8 @@ def loop():
     committed = False
     last = time.ticks_ms()
     night_at = time.ticks_ms()
+    adv_at = time.ticks_ms()
+    wt_at = time.ticks_ms()
     while True:
         button_poll()
         http_poll()
@@ -991,6 +989,19 @@ def loop():
             _write_int(BOOTCNT_PATH, 0)
             committed = True
         now = time.ticks_ms()
+        if not ble_conn and time.ticks_diff(now, adv_at) >= 60000:
+            adv_at = now
+            if netmode() != "wifi":
+                try:
+                    advertise()
+                except Exception:
+                    pass
+        if not ble_conn and time.ticks_diff(now, wt_at) >= 1800000:
+            wt_at = now
+            if netmode() != "wifi":
+                _write_int("wprobe", 1)
+                save_netmode("wifi")
+                machine.reset()
         if ramping and time.ticks_diff(now, bright_ramp) >= 40:
             bright_ramp = now
             state["bright"] = min(state["bright"] + 1, bright_target)
@@ -1041,6 +1052,8 @@ def main():
     # retrocede a BLE para no quedarse sin control.
     night_load()
     if netmode() == "wifi" and _wifi_up():
+        _write_int("netfail", 0)
+        _write_int("wprobe", 0)
         try:
             netmsg = "wifi:ok " + wlan.ifconfig()[0]
         except Exception:
@@ -1062,7 +1075,12 @@ def main():
     # mismo arranque (el driver WiFi ya se inicializo): se pasa a BLE y se
     # reinicia para levantar el BLE limpio.
     if netmode() == "wifi":
-        save_netmode("ble")
+        n = _read_int("netfail", 0) + 1
+        _write_int("netfail", n)
+        if n >= 3 or _read_int("wprobe", 0):
+            _write_int("netfail", 0)
+            _write_int("wprobe", 0)
+            save_netmode("ble")
         machine.reset()
     start_ble()
     render()
